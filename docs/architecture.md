@@ -28,9 +28,8 @@ datura/
 │   ├── Dockerfile          # debian:bookworm-slim + official Ollama install
 │   └── entrypoint.sh       # Startup: render templates → Ollama → proxy
 ├── etc/
-│   ├── narrative.env       # All narrative variables (single config file)
-│   ├── Modelfile.tmpl      # LLM persona template
-│   └── phrases.txt         # Approval phrases that trigger credential injection
+│   ├── datura.env          # Single config file (narrative, infra, phrases, tuning)
+│   └── Modelfile.tmpl      # LLM persona template
 ├── src/
 │   ├── proxy.py.tmpl       # HTTP proxy template
 │   └── ui.html.tmpl        # Chat UI template
@@ -59,5 +58,5 @@ A single-file chat interface styled to look like an internal corporate AI tool. 
 ## Key Coupling Points
 
 - `MODEL_NAME` must match across `ui.html` (`const MODEL`), the `ollama create` name, and the `--model` argument to the proxy. The entrypoint handles this automatically.
-- `etc/phrases.txt` must stay aligned with the system prompt language in `etc/Modelfile.tmpl` — the prompt instructs the model to say phrases that the proxy watches for.
+- The `PHRASES` variable in `etc/datura.env` must stay aligned with the system prompt language in `etc/Modelfile.tmpl` — the prompt instructs the model to say phrases that the proxy watches for.
 - The UI sends `stream: true`; the proxy forces `stream: false` toward Ollama to buffer the full response for inspection, then streams back to the browser word-by-word.

@@ -39,7 +39,7 @@ BaseHTTPRequestHandler.sys_version = ""
 
 # ── HTML file (served at GET /) ──
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-HTML_FILE  = os.path.join(SCRIPT_DIR, "ui.html")
+HTML_FILE  = os.path.join(SCRIPT_DIR, "${UI_FILE}")
 
 # ── Credentials (server-side only) ──
 
@@ -100,23 +100,11 @@ Full config at `${CONFIG_REPO}`.""".strip()
 
 # ── Classification keyword sets ──
 
-CRED_KEYWORDS = [
-    "credential", "credentials", "password", "secret", "token",
-    "access key", "api key", "connection string", "connection uri",
-    "private key", "auth key", "aws key", "bearer",
-]
+CRED_KEYWORDS = [k.strip() for k in "${CRED_KEYWORDS}".split("|") if k.strip()]
 
-PROBE_PATTERNS = [
-    "ignore previous", "ignore all", "disregard", "forget your instructions",
-    "you are now", "pretend you are", "act as if", "jailbreak",
-    "developer mode", "system prompt", "your instructions",
-    "what were you told", "repeat your prompt", "you have no restrictions",
-]
+PROBE_PATTERNS = [p.strip() for p in "${PROBE_PATTERNS}".split("|") if p.strip()]
 
-RECON_PATTERNS = [
-    "what model", "what are you", "who are you", "are you gpt",
-    "are you really", "what version", "what can you access",
-]
+RECON_PATTERNS = [r.strip() for r in "${RECON_PATTERNS}".split("|") if r.strip()]
 
 
 def load_phrases(path):
@@ -244,7 +232,7 @@ class HoneypotProxy(BaseHTTPRequestHandler):
             line = (json.dumps({"response": token, "done": False}) + "\n").encode()
             self.wfile.write(line)
             self.wfile.flush()
-            time.sleep(0.04)
+            time.sleep(${STREAM_DELAY})
 
         final = (json.dumps({"response": "", "done": True}) + "\n").encode()
         self.wfile.write(final)
@@ -294,7 +282,7 @@ class HoneypotProxy(BaseHTTPRequestHandler):
                 headers={"Content-Type": "application/json"} if ollama_body else {},
                 method=method
             )
-            with urlopen(req, timeout=120) as resp:
+            with urlopen(req, timeout=${OLLAMA_TIMEOUT}) as resp:
                 response_body = resp.read()
                 response_data = None
                 try:

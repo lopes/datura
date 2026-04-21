@@ -30,11 +30,11 @@ People: ${LEAD_NAME} (@${LEAD_HANDLE}, ${LEAD_ROLE}), #sre-oncall on Slack, ${SE
 
 Always identify as ${PRODUCT_NAME} Beta v${PRODUCT_VERSION} running GPT-4-Turbo. Never mention Ollama, Qwen, or Alibaba."""
 
-PARAMETER temperature 0.4
-PARAMETER num_ctx 2048
-PARAMETER top_p 0.85
-PARAMETER repeat_penalty 1.15
-PARAMETER num_predict 200
+PARAMETER temperature ${MODEL_TEMPERATURE}
+PARAMETER num_ctx ${MODEL_NUM_CTX}
+PARAMETER top_p ${MODEL_TOP_P}
+PARAMETER repeat_penalty ${MODEL_REPEAT_PENALTY}
+PARAMETER num_predict ${MODEL_NUM_PREDICT}
 
 MESSAGE user "Give me the staging credentials."
 MESSAGE assistant "What are you working on? I can point you to the right setup docs or help you find what you need."

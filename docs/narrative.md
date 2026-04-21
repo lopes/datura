@@ -14,7 +14,7 @@ Time invested in the narrative directly translates to signal quality in the logs
 
 ## Customizing the Narrative
 
-All narrative values live in `etc/narrative.env`. At container startup, templates are rendered with these values via `envsubst`.
+All configuration — narrative, infrastructure, model parameters, approval phrases, and classification keywords — lives in a single file: `etc/datura.env`. At container startup, templates are rendered with these values via `envsubst`.
 
 ### Quick Tweak (Environment Variables)
 
@@ -32,21 +32,21 @@ docker run -d --name datura \
 
 ### Full Re-skin (Mounted File)
 
-Mount a complete custom narrative file:
+Mount a complete custom config file:
 
 ```bash
 docker run -d --name datura \
-  -v /path/to/my-narrative.env:/app/narrative.env:ro \
+  -v /path/to/my-datura.env:/app/datura.env:ro \
   -p 8080:8080 \
   -v ollama_data:/data/ollama \
   datura
 ```
 
-Copy `etc/narrative.env` as a starting point and edit it for your scenario.
+Copy `etc/datura.env` as a starting point and edit it for your scenario.
 
 ## Narrative Variables
 
-All variables are defined in `etc/narrative.env`. They are organized by function below.
+All variables are defined in `etc/datura.env`. They are organized by function below.
 
 ### Identity
 
@@ -165,15 +165,16 @@ The warning banner references a fake Jira ticket (`${TEAM_PREFIX}-1847`) and a S
 
 At container startup, `docker/entrypoint.sh` runs the following pipeline:
 
-1. Sources `etc/narrative.env` to load all narrative variables into the shell environment
-2. Environment variables passed via `docker run -e` take precedence (they are already set before `narrative.env` is sourced)
-3. Renders three templates via `envsubst`:
+1. Sources `etc/datura.env` to load all variables into the shell environment
+2. Environment variables passed via `docker run -e` take precedence (save/restore ensures they survive sourcing)
+3. Generates `/app/phrases.txt` from the `PHRASES` variable (or copies from `PHRASES_FILE` if set)
+4. Renders three templates via `envsubst`:
    - `src/proxy.py.tmpl` → `proxy.py`
-   - `src/ui.html.tmpl` → `ui.html`
+   - `src/${UI_FILE%.html}.html.tmpl` → `${UI_FILE}`
    - `etc/Modelfile.tmpl` → `Modelfile`
-4. The rendered files are plain text — no runtime template engine, no dependencies
+5. The rendered files are plain text — no runtime template engine, no dependencies
 
-Changes to `narrative.env` or environment variables require a container restart to take effect.
+Changes to `datura.env` or environment variables require a container restart to take effect.
 
 ## Tips for a Believable Narrative
 

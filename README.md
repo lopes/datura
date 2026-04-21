@@ -118,7 +118,9 @@ docker run -d --name datura \
 
 ## Configuration
 
-All configuration is via environment variables passed to `docker run -e`:
+All configuration lives in a single file: `etc/datura.env`. It contains infrastructure settings, narrative identity, credentials, approval phrases, model parameters, proxy tuning, and classification keywords. Override individual values with `docker run -e`, or mount a complete custom file.
+
+### Key Variables
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -127,12 +129,29 @@ All configuration is via environment variables passed to `docker run -e`:
 | `PROXY_PORT` | `8080` | Internal proxy listen port |
 | `LOG_DIR` | `/data/logs` | Log directory inside container |
 | `OLLAMA_HOST` | `127.0.0.1:11434` | Internal Ollama address |
+| `UI_FILE` | `ui.html` | Rendered HTML file served at GET / |
+| `MODEL_TEMPERATURE` | `0.4` | Ollama temperature parameter |
+| `STREAM_DELAY` | `0.04` | Seconds between streamed words |
+| `OLLAMA_TIMEOUT` | `120` | Seconds to wait for Ollama response |
 | `TLS_CERT` | *(empty)* | Path to TLS certificate (inside container) |
 | `TLS_KEY` | *(empty)* | Path to TLS private key (inside container) |
 | `TLS_PORT` | `8443` | Internal HTTPS listen port |
-| `TLS_HOSTNAME` | `itassist-beta-...acmecorp.world` | CN for self-signed certificate |
 | `GENERATE_SELF_SIGNED` | `false` | Auto-generate a self-signed TLS cert |
 | `CUSTOM_CA_CERT` | *(empty)* | Path to custom CA cert inside container (for corporate TLS proxies) |
+| `PHRASES` | *(pipe-delimited)* | Approval phrases triggering credential injection |
+| `PHRASES_FILE` | *(empty)* | Optional path to external phrases file |
+
+See `etc/datura.env` for the full list including narrative, credentials, and classification keywords.
+
+### Full Re-skin
+
+Mount a custom config file:
+
+```bash
+docker run -d --name datura \
+  -v /path/to/my-datura.env:/app/datura.env:ro \
+  -p 8080:8080 -v ollama_data:/data/ollama datura
+```
 
 ### Port Mapping Examples
 
@@ -153,7 +172,7 @@ docker run -d -p 443:8443 -e GENERATE_SELF_SIGNED=true ...
 docker run -d -e BASE_MODEL=llama3.2:3b -v ollama_data:/data/ollama ...
 ```
 
-When switching base models, review `etc/phrases.txt` — different models produce different phrasing. The approval phrases must match what the model actually says.
+When switching base models, review the `PHRASES` variable in `etc/datura.env` — different models produce different phrasing. The approval phrases must match what the model actually says.
 
 ### GPU Support
 

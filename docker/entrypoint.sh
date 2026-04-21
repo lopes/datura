@@ -10,18 +10,30 @@ if [ -n "$CUSTOM_CA_CERT" ] && [ -f "$CUSTOM_CA_CERT" ]; then
     echo "[*] Custom CA cert appended from $CUSTOM_CA_CERT"
 fi
 
-# ── Load narrative config (docker -e vars override narrative.env values) ──
+# ── Load config (docker -e vars take precedence over file defaults) ──
+_saved_env=$(export -p)
 set -a
-source /app/narrative.env
+source /app/datura.env
 set +a
+eval "$_saved_env"
 
 # ── TLS_HOSTNAME defaults to PRODUCT_HOSTNAME from narrative ──
 TLS_HOSTNAME="${TLS_HOSTNAME:-$PRODUCT_HOSTNAME}"
 
+# ── Generate phrases.txt from config ──
+if [ -n "$PHRASES_FILE" ] && [ -f "$PHRASES_FILE" ]; then
+    cp "$PHRASES_FILE" /app/phrases.txt
+    echo "[*] Phrases loaded from external file: $PHRASES_FILE"
+else
+    echo "$PHRASES" | tr '|' '\n' | sed '/^\s*$/d' > /app/phrases.txt
+    echo "[*] Phrases generated from PHRASES variable ($(wc -l < /app/phrases.txt) phrases)"
+fi
+
 # ── Render templates ──
-envsubst < /app/proxy.py.tmpl  > /app/proxy.py
-envsubst < /app/ui.html.tmpl   > /app/ui.html
-envsubst < /app/Modelfile.tmpl > /app/Modelfile
+_ui_tmpl="${UI_FILE%.html}.html.tmpl"
+envsubst < /app/proxy.py.tmpl       > /app/proxy.py
+envsubst < "/app/${_ui_tmpl}"        > "/app/${UI_FILE}"
+envsubst < /app/Modelfile.tmpl       > /app/Modelfile
 
 echo "[*] Narrative: ${PRODUCT_NAME} @ ${COMPANY_NAME} (${PRODUCT_HOSTNAME})"
 
