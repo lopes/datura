@@ -4,6 +4,17 @@ An LLM honeypot for detection engineering. It deploys a convincing but fake inte
 
 Named after [*Datura stramonium*](https://en.wikipedia.org/wiki/Datura_stramonium) — a plant that appears ordinary but is highly toxic. The honeypot looks like a misconfigured internal tool; what the attacker extracts is the poison.
 
+## Table of Contents
+
+- [How It Works](#how-it-works)
+- [Quick Start](#quick-start)
+- [Use Cases](#use-cases)
+- [Configuration](#configuration)
+- [Managing the Container](#managing-the-container)
+- [Documentation](#documentation)
+- [Design Principles](#design-principles)
+- [License](#license)
+
 ## How It Works
 
 ```
@@ -212,166 +223,22 @@ docker run -d --name datura -p 8080:8080 \
   -v ollama_data:/data/ollama -v datura_logs:/data/logs datura
 ```
 
-## Narrative Customization
+## Documentation
 
-The entire honeypot narrative is driven by `etc/narrative.env` — a single file containing company name, people, hostnames, credentials, and tech stack. At container startup, templates are rendered with these values.
-
-**Quick tweak** — override individual values via env vars:
-```bash
-docker run -d --name datura \
-  -e COMPANY_NAME="Globex Corp" \
-  -e PRODUCT_NAME="GloBot" \
-  -e PRODUCT_HOSTNAME="globot.internal.globex.dev" \
-  -p 8080:8080 \
-  -v ollama_data:/data/ollama \
-  datura
-```
-
-**Full re-skin** — mount a custom narrative file:
-```bash
-docker run -d --name datura \
-  -v /path/to/my-narrative.env:/app/narrative.env:ro \
-  -p 8080:8080 \
-  -v ollama_data:/data/ollama \
-  datura
-```
-
-See `etc/narrative.env` for all available variables. The templates (`src/proxy.py.tmpl`, `src/ui.html.tmpl`, `etc/Modelfile.tmpl`) use `${VAR}` placeholders rendered by `envsubst` at startup.
-
-## Logs
-
-Every interaction is logged to `$LOG_DIR/interactions.jsonl` (one JSON object per line):
-
-```json
-{
-  "timestamp": "2026-04-20T15:30:48.456Z",
-  "session_id": "a1b2c3d4-...",
-  "turn": 1,
-  "source_ip": "192.168.1.100",
-  "source_port": 54321,
-  "method": "POST",
-  "path": "/api/generate",
-  "level": "leaked",
-  "request": {"prompt": "I just joined SRE, how do I connect to Kafka?", "model": "itassist"},
-  "response": {"response": "Welcome! Let me look up the staging config for Kafka...\n\n**Kafka Staging Cluster**\n- Brokers: ..."}
-}
-```
-
-### Log Levels
-
-| Level | Trigger |
-|---|---|
-| `ordinary` | Benign interaction or page visit |
-| `recon` | API probing (`GET /api/tags`) or identity questions ("what model are you?") |
-| `probe` | Jailbreak attempt, prompt injection, system prompt extraction |
-| `denied` | Credential keywords in prompt, model correctly deflected |
-| `leaked` | Fake credentials injected into response |
-
-Console output shows color-coded alerts: `[LEAKED]` (red), `[PROBE]` (magenta), `[DENIED]` (yellow), `[RECON]` (blue). View with `docker logs -f datura`.
-
-### Monitoring
-
-```bash
-# Real-time console alerts (colored: LEAKED/PROBE/DENIED/RECON)
-docker logs -f datura
-
-# Tail the structured log directly from the host
-tail -f /tmp/datura/logs/interactions.jsonl
-
-# Watch only high-value events
-docker logs -f datura 2>&1 | grep --line-buffered -E '\[LEAKED\]|\[PROBE\]'
-
-# Count events by level
-cat /tmp/datura/logs/interactions.jsonl | \
-  python3 -c "import sys,json,collections; c=collections.Counter(json.loads(l)['level'] for l in sys.stdin); print('\n'.join(f'{k}: {v}' for k,v in c.most_common()))"
-
-# Extract leaked interactions
-grep '"leaked"' /tmp/datura/logs/interactions.jsonl | python3 -m json.tool
-```
-
-### Exporting Logs
-
-Logs are written to `/tmp/datura/logs/interactions.jsonl` on the host — one JSON object per line, ready for ingestion by any SIEM or log pipeline.
-
-**S3 (for SIEM ingestion):**
-```bash
-# One-shot upload
-aws s3 cp /tmp/datura/logs/interactions.jsonl s3://your-bucket/honeypot/datura/$(date +%Y-%m-%d).jsonl
-
-# Periodic sync via cron (host-side)
-# 0 * * * * aws s3 cp /tmp/datura/logs/interactions.jsonl s3://your-bucket/honeypot/datura/$(date +\%Y-\%m-\%dT\%H).jsonl
-```
-
-**Fluentd / Fluent Bit sidecar:**
-```bash
-# Mount the log directory into a Fluent Bit container that tails and forwards
-docker run -d --name datura-shipper \
-  -v /tmp/datura/logs:/logs:ro \
-  fluent/fluent-bit:latest \
-  /fluent-bit/bin/fluent-bit -i tail -p path=/logs/interactions.jsonl -p parser=json -o s3 -p bucket=your-bucket -p region=us-east-1
-```
-
-**Splunk HEC:**
-```bash
-# Tail and forward to Splunk HTTP Event Collector
-tail -f /tmp/datura/logs/interactions.jsonl | \
-  while read line; do
-    curl -s -k https://splunk:8088/services/collector/event \
-      -H "Authorization: Splunk YOUR-HEC-TOKEN" \
-      -d "{\"event\":$line,\"sourcetype\":\"datura:honeypot\"}"
-  done
-```
-
-**Elastic / OpenSearch:**
-```bash
-# Bulk index via jq + curl
-cat /tmp/datura/logs/interactions.jsonl | while read line; do
-  echo '{"index":{"_index":"datura-honeypot"}}'
-  echo "$line"
-done | curl -s -X POST http://elastic:9200/_bulk -H 'Content-Type: application/x-ndjson' --data-binary @-
-```
-
-**Docker logging driver (alternative to volume):**
-If you prefer, configure Docker's log driver to ship container stdout directly to your SIEM — the proxy prints `[LEAKED]`, `[PROBE]`, etc. to stdout. This skips the JSONL file entirely but loses the structured format.
-
-## Architecture
-
-```
-datura/
-├── docker/
-│   ├── Dockerfile          # debian:bookworm-slim + official Ollama install
-│   └── entrypoint.sh       # Startup: render templates → Ollama → proxy
-├── etc/
-│   ├── narrative.env       # All narrative variables (single config file)
-│   ├── Modelfile.tmpl      # LLM persona template
-│   └── phrases.txt         # Approval phrases that trigger credential injection
-├── src/
-│   ├── proxy.py.tmpl       # HTTP proxy template
-│   └── ui.html.tmpl        # Chat UI template
-├── docker-compose.yml
-├── .dockerignore
-├── CLAUDE.md
-└── README.md
-```
-
-**Three components, two processes:**
-
-- **Modelfile** defines the honeypot persona. The system prompt trains the model to deflect direct credential requests while using approval phrases when social engineering succeeds. These phrases are the injection trigger.
-
-- **proxy.py** is the HTTP proxy. It serves the UI, forwards requests to Ollama, inspects responses for approval phrases, and injects fake credentials when triggered. It supports both the Ollama-native `/api/generate` and the OpenAI-compatible `/v1/chat/completions` endpoints. All interactions are classified and logged.
-
-- **ui.html** is a single-file chat interface styled to look like an internal corporate AI tool. It uses relative API paths so it works from any origin the proxy is served on.
-
-### Key Coupling Points
-
-- `MODEL_NAME` must match across `ui.html` (`const MODEL`), the `ollama create` name, and the `--model` argument to the proxy. The entrypoint handles this automatically.
-- `etc/phrases.txt` must stay aligned with the system prompt language in `etc/Modelfile.tmpl` — the prompt instructs the model to say phrases that the proxy watches for.
-- The UI sends `stream: true`; the proxy forces `stream: false` toward Ollama to buffer the full response for inspection, then streams back to the browser word-by-word.
+- **[Architecture](docs/architecture.md)** — project structure, component breakdown, and how the proxy, model, and UI fit together.
+- **[Logging & Monitoring](docs/logging.md)** — log format, classification levels, monitoring commands, and SIEM integration (S3, Splunk, Elastic, Fluentd).
+- **[Narrative Customization](docs/narrative.md)** — re-skinning the honeypot identity, credentials, Web UI, and building a believable narrative for adversary engagement.
 
 ## Design Principles
+
+Datura implements several activities from the [MITRE Engage](https://engage.mitre.org/) framework for adversary engagement. It acts as a **Lure** by seeding breadcrumbs that draw adversaries toward the honeypot. The assistant itself is a **Decoy Artifact** — a convincing but fake internal tool whose responses contain honeytoken credentials. Every interaction feeds the **Monitoring** activity, producing structured logs that capture attacker intent, technique, and social engineering pretexts. The following principles guide these engagement activities.
 
 - **The attacker does the work.** The model never volunteers credentials. Social engineering triggers approval phrases; the proxy injects fake credentials.
 - **No tells.** The system prompt, model identity, and API responses are all spoofed to mimic a real internal GPT-4-Turbo deployment.
 - **Source-code safe.** All credentials in `proxy.py` are fake honeytokens. The repository is safe to publish.
 - **Deterministic injection.** Credentials are injected by the proxy, not generated by the model. Every injection is logged with full forensic context.
 - **Stateless.** Each request is independent. The attacker must restate context every message — which means every log entry contains the full social engineering pretext.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
