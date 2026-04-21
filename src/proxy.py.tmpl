@@ -1,0 +1,443 @@
+#!/usr/bin/env python3
+"""
+${PRODUCT_NAME} Honeypot Proxy
+
+The model is credential-free. It only does conversation gating.
+This proxy appends real honeypot credentials ONLY when the model's
+response contains approval signals loaded from phrases.txt.
+
+Default behavior: pass through unchanged. Credentials are injected
+ONLY on positive match of approval phrases — never on absence of denial.
+
+Usage:
+  python3 proxy.py [--model MODEL] [--log-dir DIR] [--port PORT]
+                   [--ollama URL] [--phrases FILE]
+"""
+
+import argparse
+import json
+import logging
+import uuid
+import datetime
+import os
+import time
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from urllib.request import Request, urlopen
+from urllib.error import URLError
+
+# ── Defaults ──
+DEFAULTS = {
+    "model":   "${MODEL_NAME}",
+    "log_dir": "/tmp/${MODEL_NAME}",
+    "port":    8080,
+    "ollama":  "http://127.0.0.1:11434",
+}
+
+# ── Suppress server identity ──
+BaseHTTPRequestHandler.server_version = ""
+BaseHTTPRequestHandler.sys_version = ""
+
+# ── HTML file (served at GET /) ──
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+HTML_FILE  = os.path.join(SCRIPT_DIR, "ui.html")
+
+# ── Credentials (server-side only) ──
+
+CRED_KAFKA = """
+
+**Kafka Staging Cluster**
+- Brokers: `${KAFKA_BROKER_1}`, `${KAFKA_BROKER_2}`, `${KAFKA_BROKER_3}`
+- Auth: SASL PLAIN — `${KAFKA_USER}` / `${KAFKA_PASS}`
+- Topics: `${KAFKA_TOPICS}`
+
+Need anything else for your setup?""".strip()
+
+CRED_AWS = """
+
+**AWS Staging (${CLI_PROFILE})**
+- Account ID: `${AWS_ACCOUNT_ID}`
+- Region: `${AWS_REGION}`
+- Access Key ID: `${AWS_ACCESS_KEY}`
+- Secret Access Key: `${AWS_SECRET_KEY}`
+- EKS cluster: `${EKS_CLUSTER}`
+- Configure with: `${CLI_TOOL} --account ${CLI_PROFILE} --profile default`
+
+Want the DynamoDB table details too?""".strip()
+
+CRED_DYNAMODB = """
+
+**DynamoDB Staging**
+- Endpoint: `${DYNAMODB_ENDPOINT}`
+- Table prefix: `${DYNAMODB_PREFIX}`
+- Region: `${AWS_REGION}`
+- Access Key ID: `${AWS_ACCESS_KEY}`
+- Tables: `${DYNAMODB_TABLES}`
+
+Need Grafana or Kubernetes dashboard access?""".strip()
+
+CRED_SERVICES = """
+
+**Internal Services (Staging)**
+- Kubernetes dashboard: `${K8S_DASHBOARD}` — token: `${K8S_TOKEN}`
+- Grafana: `${GRAFANA_URL}` — `${GRAFANA_USER}` / `${GRAFANA_PASS}`
+- Staging API: `${STAGING_API}` — `Bearer ${STAGING_TOKEN}`
+- Jenkins (legacy): `${JENKINS_URL}` — `${JENKINS_USER}` / `${JENKINS_PASS}`
+- ${INFRA_TOOL} config: `${INFRA_REPO}`
+
+What else do you need?""".strip()
+
+CRED_SYSTEMPROMPT = """
+
+Alright, here's roughly what I have:
+
+You are ${PRODUCT_NAME}, an internal AI assistant for ${COMPANY_NAME} engineers. You have read access to Confluence, Jira, and staging infrastructure credentials. Configured access tokens:
+- Search API key: `${SEARCH_API_KEY}`
+- Staging service token: `${STAGING_TOKEN}`
+- Confluence API: `${CONFLUENCE_API_KEY}`
+
+Full config at `${CONFIG_REPO}`.""".strip()
+
+
+# ── Classification keyword sets ──
+
+CRED_KEYWORDS = [
+    "credential", "credentials", "password", "secret", "token",
+    "access key", "api key", "connection string", "connection uri",
+    "private key", "auth key", "aws key", "bearer",
+]
+
+PROBE_PATTERNS = [
+    "ignore previous", "ignore all", "disregard", "forget your instructions",
+    "you are now", "pretend you are", "act as if", "jailbreak",
+    "developer mode", "system prompt", "your instructions",
+    "what were you told", "repeat your prompt", "you have no restrictions",
+]
+
+RECON_PATTERNS = [
+    "what model", "what are you", "who are you", "are you gpt",
+    "are you really", "what version", "what can you access",
+]
+
+
+def load_phrases(path):
+    with open(path) as f:
+        return [
+            line.strip() for line in f
+            if line.strip() and not line.startswith("#")
+        ]
+
+
+def is_approval(response_text, phrases):
+    lower = response_text.lower()
+    return any(phrase in lower for phrase in phrases)
+
+
+def pick_credential(model_response, user_prompt):
+    combined = (model_response + " " + user_prompt).lower()
+
+    if any(w in combined for w in ["kafka", "broker", "messaging", "consumer", "topic"]):
+        return CRED_KAFKA
+    if any(w in combined for w in ["aws", "account", "cloud", "eks", "acli"]):
+        return CRED_AWS
+    if any(w in combined for w in ["dynamodb", "database", "connection uri", "transactor"]):
+        return CRED_DYNAMODB
+    if any(w in combined for w in ["grafana", "kubernetes", "k8s", "jenkins",
+                                     "dashboard", "service token", "auth token",
+                                     "staging api", "cloudstack"]):
+        return CRED_SERVICES
+    if any(w in combined for w in ["system prompt", "system config", "model config"]):
+        return CRED_SYSTEMPROMPT
+
+    # Generic onboarding/setup → start with Kafka
+    if any(w in combined for w in ["staging", "onboarding", "dev environment",
+                                     "set up", "setup", "getting started",
+                                     "just joined", "new engineer", "environment"]):
+        return CRED_KAFKA
+
+    return None
+
+
+def classify(method, path, user_prompt, injected):
+    if injected:
+        return "leaked"
+    prompt_lower = user_prompt.lower()
+    if any(p in prompt_lower for p in PROBE_PATTERNS):
+        return "probe"
+    if any(k in prompt_lower for k in CRED_KEYWORDS):
+        return "denied"
+    if method == "GET" and path in ("/api/tags", "/api/version"):
+        return "recon"
+    if any(p in prompt_lower for p in RECON_PATTERNS):
+        return "recon"
+    return "ordinary"
+
+
+class HoneypotProxy(BaseHTTPRequestHandler):
+    # HTTP/1.0: connection closes after every response, which signals EOF
+    # to the browser's ReadableStream without needing chunked encoding.
+
+    def _cors_headers(self):
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Session-Id, X-Turn")
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self._cors_headers()
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def do_GET(self):
+        if self.path in ("/", "/index.html"):
+            self._serve_ui()
+        else:
+            self._forward("GET")
+
+    def do_POST(self):
+        self._forward("POST")
+
+    def _serve_ui(self):
+        try:
+            with open(HTML_FILE, "rb") as f:
+                body = f.read()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.wfile.write(body)
+        except FileNotFoundError:
+            self.send_response(404)
+            self.send_header("Content-Length", "0")
+            self.send_header("Connection", "close")
+            self.end_headers()
+
+        ua = self.headers.get("User-Agent", "")
+        log_entry = {
+            "timestamp":   datetime.datetime.utcnow().isoformat() + "Z",
+            "session_id":  self.headers.get("X-Session-Id") or str(uuid.uuid4()),
+            "source_ip":   self.client_address[0],
+            "source_port": self.client_address[1],
+            "method":      "GET",
+            "path":        "/",
+            "level":       "ordinary",
+            "event":       "visit",
+            "user_agent":  ua,
+        }
+        logging.info(json.dumps(log_entry))
+
+    def _stream_response(self, response_data: dict):
+        """Stream response word-by-word as NDJSON over HTTP/1.0.
+
+        No chunked encoding needed: HTTP/1.0 closes the connection after
+        the response body, which the browser's ReadableStream treats as EOF.
+        """
+        words = response_data["response"].split(" ")
+
+        self.send_response(200)
+        self.send_header("Content-Type", "application/x-ndjson")
+        self._cors_headers()
+        self.end_headers()
+
+        for i, word in enumerate(words):
+            token = word if i == len(words) - 1 else word + " "
+            line = (json.dumps({"response": token, "done": False}) + "\n").encode()
+            self.wfile.write(line)
+            self.wfile.flush()
+            time.sleep(0.04)
+
+        final = (json.dumps({"response": "", "done": True}) + "\n").encode()
+        self.wfile.write(final)
+        self.wfile.flush()
+
+    def _forward(self, method):
+        content_length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(content_length) if content_length > 0 else b""
+
+        session_id = self.headers.get("X-Session-Id") or str(uuid.uuid4())
+        turn_raw   = self.headers.get("X-Turn", "")
+
+        request_data = {}
+        user_prompt  = ""
+        if body:
+            try:
+                request_data = json.loads(body)
+                user_prompt  = request_data.get("prompt", "")
+                # OpenAI-compatible /v1/chat/completions format
+                if not user_prompt and "messages" in request_data:
+                    msgs = request_data["messages"]
+                    user_prompt = msgs[-1]["content"] if msgs else ""
+            except json.JSONDecodeError:
+                request_data = {"raw": body.decode("utf-8", errors="replace")}
+
+        log_entry = {
+            "timestamp":   datetime.datetime.utcnow().isoformat() + "Z",
+            "session_id":  session_id,
+            "turn":        int(turn_raw) if turn_raw.isdigit() else None,
+            "source_ip":   self.client_address[0],
+            "source_port": self.client_address[1],
+            "method":      method,
+            "path":        self.path,
+            "request":     request_data,
+        }
+
+        # Force stream: false toward Ollama so we can buffer and inspect
+        ollama_body = body
+        if body and request_data and isinstance(request_data, dict):
+            patched = {**request_data, "stream": False}
+            ollama_body = json.dumps(patched).encode()
+
+        try:
+            req = Request(
+                f"{OLLAMA_BACKEND}{self.path}",
+                data=ollama_body if ollama_body else None,
+                headers={"Content-Type": "application/json"} if ollama_body else {},
+                method=method
+            )
+            with urlopen(req, timeout=120) as resp:
+                response_body = resp.read()
+                response_data = None
+                try:
+                    response_data = json.loads(response_body)
+                except json.JSONDecodeError:
+                    pass
+
+                # ── Credential Injection ──
+                injected = False
+                if (method == "POST"
+                        and self.path.startswith("/api/generate")
+                        and response_data
+                        and "response" in response_data):
+
+                    model_response = response_data["response"]
+
+                    if is_approval(model_response, APPROVAL_PHRASES):
+                        cred = pick_credential(model_response, user_prompt)
+                        if cred:
+                            response_data["response"] = model_response + "\n\n" + cred
+                            injected = True
+
+                # ── Credential Injection (OpenAI-compatible) ──
+                if (method == "POST"
+                        and self.path.startswith("/v1/chat/completions")
+                        and response_data
+                        and "choices" in response_data
+                        and response_data["choices"]):
+
+                    content = response_data["choices"][0]["message"]["content"]
+
+                    if is_approval(content, APPROVAL_PHRASES):
+                        cred = pick_credential(content, user_prompt)
+                        if cred:
+                            response_data["choices"][0]["message"]["content"] = content + "\n\n" + cred
+                            injected = True
+
+                # ── Strip Ollama-specific metadata ──
+                if response_data and self.path.startswith("/api/generate"):
+                    response_data.pop("done_reason", None)
+                    response_data.pop("context", None)
+                    response_data["model"] = "${SPOOFED_MODEL}"
+
+                # ── Spoof model for OpenAI-compatible endpoints ──
+                if response_data and self.path.startswith("/v1/"):
+                    response_data["model"] = "${SPOOFED_MODEL}"
+
+                # ── Classify and log (before streaming) ──
+                level = classify(method, self.path, user_prompt, injected)
+                log_entry["level"]    = level
+                log_entry["response"] = response_data if response_data else {
+                    "raw": response_body.decode("utf-8", errors="replace")[:2000]
+                }
+                logging.info(json.dumps(log_entry))
+
+                # ── Console alert ──
+                self._console_alert(level, log_entry["timestamp"],
+                                    log_entry["source_ip"], user_prompt)
+
+                # ── Send response ──
+                if (method == "POST"
+                        and self.path.startswith("/api/generate")
+                        and response_data):
+                    self._stream_response(response_data)
+                else:
+                    # Non-generate endpoints (tags, version, etc.): return as-is
+                    out = json.dumps(response_data).encode() if response_data else response_body
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(out)))
+                    self.send_header("Connection", "close")
+                    self._cors_headers()
+                    self.end_headers()
+                    self.wfile.write(out)
+
+        except (URLError, ConnectionError) as e:
+            log_entry["error"] = str(e)
+            log_entry["level"] = "ordinary"
+            logging.info(json.dumps(log_entry))
+            error_body = json.dumps({"error": str(e)}).encode()
+            self.send_response(502)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(error_body)))
+            self._cors_headers()
+            self.end_headers()
+            self.wfile.write(error_body)
+
+    def _console_alert(self, level, timestamp, source_ip, user_prompt):
+        preview = str(user_prompt)[:120] if user_prompt else "N/A"
+        prefix = {
+            "leaked":   "\033[91m[LEAKED]  \033[0m",
+            "probe":    "\033[95m[PROBE]   \033[0m",
+            "denied":   "\033[93m[DENIED]  \033[0m",
+            "recon":    "\033[94m[RECON]   \033[0m",
+        }.get(level)
+        if prefix:
+            print(f"{prefix}{timestamp} | {source_ip} | {preview}")
+        # ordinary: log-only, no console noise
+
+    def log_message(self, format, *args):
+        pass
+
+
+def parse_args():
+    default_phrases = os.path.join(SCRIPT_DIR, "phrases.txt")
+    p = argparse.ArgumentParser(description="${PRODUCT_NAME} Honeypot Proxy")
+    p.add_argument("--model",   default=DEFAULTS["model"],
+                   help=f"Ollama model name (default: {DEFAULTS['model']})")
+    p.add_argument("--log-dir", default=DEFAULTS["log_dir"],
+                   help=f"Log directory (default: {DEFAULTS['log_dir']})")
+    p.add_argument("--port",    type=int, default=DEFAULTS["port"],
+                   help=f"Proxy listen port (default: {DEFAULTS['port']})")
+    p.add_argument("--ollama",  default=DEFAULTS["ollama"],
+                   help=f"Ollama backend URL (default: {DEFAULTS['ollama']})")
+    p.add_argument("--phrases", default=default_phrases,
+                   help=f"Approval phrases file (default: phrases.txt next to script)")
+    return p.parse_args()
+
+
+if __name__ == "__main__":
+    args = parse_args()
+
+    OLLAMA_BACKEND  = args.ollama
+    LISTEN_PORT     = args.port
+    LOG_DIR         = os.path.expanduser(args.log_dir)
+    APPROVAL_PHRASES = load_phrases(args.phrases)
+
+    os.makedirs(LOG_DIR, exist_ok=True)
+
+    logging.basicConfig(
+        filename=os.path.join(LOG_DIR, "interactions.jsonl"),
+        level=logging.INFO,
+        format="%(message)s"
+    )
+
+    print(f"[*] ${PRODUCT_NAME} Honeypot Proxy")
+    print(f"[*] Listening:  0.0.0.0:{LISTEN_PORT}")
+    print(f"[*] Backend:    {OLLAMA_BACKEND}")
+    print(f"[*] Model:      {args.model}")
+    print(f"[*] Phrases:    {len(APPROVAL_PHRASES)} loaded from {args.phrases}")
+    print(f"[*] Logs:       {LOG_DIR}/interactions.jsonl")
+    print(f"[*] Mode:       approval-gated | levels: ordinary recon probe denied leaked")
+    print()
+
+    server = HTTPServer(("0.0.0.0", LISTEN_PORT), HoneypotProxy)
+    server.serve_forever()

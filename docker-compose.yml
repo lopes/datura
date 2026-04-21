@@ -1,0 +1,35 @@
+services:
+  datura:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: datura
+    ports:
+      - "8080:8080"
+      # - "80:8080"       # HTTP on port 80
+      # - "443:8443"      # HTTPS on port 443
+    volumes:
+      - ollama_data:/data/ollama
+      - datura_logs:/data/logs
+      # - /path/to/corporate-ca.pem:/certs/custom-ca.pem:ro
+      # - /path/to/narrative.env:/app/narrative.env:ro
+      # - /path/to/custom/phrases.txt:/app/phrases.txt:ro
+    environment:
+      - MODEL_NAME=itassist
+      - BASE_MODEL=qwen2.5:3b
+      # - COMPANY_NAME=Globex Corp
+      # - PRODUCT_NAME=GloBot
+      # - GENERATE_SELF_SIGNED=true
+      # - CUSTOM_CA_CERT=/certs/custom-ca.pem
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  ollama_data:
+  datura_logs:
