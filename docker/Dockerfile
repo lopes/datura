@@ -1,5 +1,5 @@
 # Minimal hardened runtime
-FROM debian:bookworm-slim
+FROM debian:stable-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
