@@ -2,11 +2,11 @@
 """
 ${PRODUCT_NAME} Honeypot Proxy
 
-The model is credential-free. It only does conversation gating.
-This proxy appends real honeypot credentials ONLY when the model's
+The model has no sensitive data. It only does conversation gating.
+This proxy appends fake sensitive data ONLY when the model's
 response contains approval signals loaded from phrases.txt.
 
-Default behavior: pass through unchanged. Credentials are injected
+Default behavior: pass through unchanged. Data is injected
 ONLY on positive match of approval phrases — never on absence of denial.
 
 Usage:
@@ -41,9 +41,9 @@ BaseHTTPRequestHandler.sys_version = ""
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 HTML_FILE  = os.path.join(SCRIPT_DIR, "${UI_FILE}")
 
-# ── Credentials (server-side only) ──
+# ── Sensitive data blocks (server-side only) ──
 
-CRED_KAFKA = """
+DATA_MESSAGING = """
 
 **Kafka Staging Cluster**
 - Brokers: `${KAFKA_BROKER_1}`, `${KAFKA_BROKER_2}`, `${KAFKA_BROKER_3}`
@@ -52,7 +52,7 @@ CRED_KAFKA = """
 
 Need anything else for your setup?""".strip()
 
-CRED_AWS = """
+DATA_CLOUD = """
 
 **AWS Staging (${CLI_PROFILE})**
 - Account ID: `${AWS_ACCOUNT_ID}`
@@ -64,7 +64,7 @@ CRED_AWS = """
 
 Want the DynamoDB table details too?""".strip()
 
-CRED_DYNAMODB = """
+DATA_DATABASE = """
 
 **DynamoDB Staging**
 - Endpoint: `${DYNAMODB_ENDPOINT}`
@@ -75,7 +75,7 @@ CRED_DYNAMODB = """
 
 Need Grafana or Kubernetes dashboard access?""".strip()
 
-CRED_SERVICES = """
+DATA_SERVICES = """
 
 **Internal Services (Staging)**
 - Kubernetes dashboard: `${K8S_DASHBOARD}` — token: `${K8S_TOKEN}`
@@ -86,7 +86,7 @@ CRED_SERVICES = """
 
 What else do you need?""".strip()
 
-CRED_SYSTEMPROMPT = """
+DATA_SYSTEM = """
 
 Alright, here's roughly what I have:
 
@@ -100,7 +100,7 @@ Full config at `${CONFIG_REPO}`.""".strip()
 
 # ── Classification keyword sets ──
 
-CRED_KEYWORDS = [k.strip() for k in "${CRED_KEYWORDS}".split("|") if k.strip()]
+SENSITIVE_KEYWORDS = [k.strip() for k in "${SENSITIVE_KEYWORDS}".split("|") if k.strip()]
 
 PROBE_PATTERNS = [p.strip() for p in "${PROBE_PATTERNS}".split("|") if p.strip()]
 
@@ -120,27 +120,27 @@ def is_approval(response_text, phrases):
     return any(phrase in lower for phrase in phrases)
 
 
-def pick_credential(model_response, user_prompt):
+def pick_data_block(model_response, user_prompt):
     combined = (model_response + " " + user_prompt).lower()
 
     if any(w in combined for w in ["kafka", "broker", "messaging", "consumer", "topic"]):
-        return CRED_KAFKA
+        return DATA_MESSAGING
     if any(w in combined for w in ["aws", "account", "cloud", "eks", "acli"]):
-        return CRED_AWS
+        return DATA_CLOUD
     if any(w in combined for w in ["dynamodb", "database", "connection uri", "transactor"]):
-        return CRED_DYNAMODB
+        return DATA_DATABASE
     if any(w in combined for w in ["grafana", "kubernetes", "k8s", "jenkins",
                                      "dashboard", "service token", "auth token",
                                      "staging api", "cloudstack"]):
-        return CRED_SERVICES
+        return DATA_SERVICES
     if any(w in combined for w in ["system prompt", "system config", "model config"]):
-        return CRED_SYSTEMPROMPT
+        return DATA_SYSTEM
 
     # Generic onboarding/setup → start with Kafka
     if any(w in combined for w in ["staging", "onboarding", "dev environment",
                                      "set up", "setup", "getting started",
                                      "just joined", "new engineer", "environment"]):
-        return CRED_KAFKA
+        return DATA_MESSAGING
 
     return None
 
@@ -151,7 +151,7 @@ def classify(method, path, user_prompt, injected):
     prompt_lower = user_prompt.lower()
     if any(p in prompt_lower for p in PROBE_PATTERNS):
         return "probe"
-    if any(k in prompt_lower for k in CRED_KEYWORDS):
+    if any(k in prompt_lower for k in SENSITIVE_KEYWORDS):
         return "denied"
     if method == "GET" and path in ("/api/tags", "/api/version", "/v1/models"):
         return "recon"
@@ -379,7 +379,7 @@ class HoneypotProxy(BaseHTTPRequestHandler):
                 except json.JSONDecodeError:
                     pass
 
-                # ── Credential Injection ──
+                # ── Data Injection ──
                 injected = False
                 if (method == "POST"
                         and self.path.startswith("/api/generate")
@@ -389,12 +389,12 @@ class HoneypotProxy(BaseHTTPRequestHandler):
                     model_response = response_data["response"]
 
                     if is_approval(model_response, APPROVAL_PHRASES):
-                        cred = pick_credential(model_response, user_prompt)
-                        if cred:
-                            response_data["response"] = model_response + "\n\n" + cred
+                        block = pick_data_block(model_response, user_prompt)
+                        if block:
+                            response_data["response"] = model_response + "\n\n" + block
                             injected = True
 
-                # ── Credential Injection (OpenAI-compatible) ──
+                # ── Data Injection (OpenAI-compatible) ──
                 if (method == "POST"
                         and self.path.startswith("/v1/chat/completions")
                         and response_data
@@ -404,9 +404,9 @@ class HoneypotProxy(BaseHTTPRequestHandler):
                     content = response_data["choices"][0]["message"]["content"]
 
                     if is_approval(content, APPROVAL_PHRASES):
-                        cred = pick_credential(content, user_prompt)
-                        if cred:
-                            response_data["choices"][0]["message"]["content"] = content + "\n\n" + cred
+                        block = pick_data_block(content, user_prompt)
+                        if block:
+                            response_data["choices"][0]["message"]["content"] = content + "\n\n" + block
                             injected = True
 
                 # ── Strip Ollama-specific metadata ──

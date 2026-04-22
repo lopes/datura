@@ -4,9 +4,9 @@
 
 <h1 align="center">Datura</h1>
 
-An LLM honeypot for detection engineering. It deploys a convincing but fake internal AI assistant that appears to leak sensitive data (credentials, API keys, connection strings) when socially engineered. Every interaction is logged, giving defenders a high-fidelity signal of attacker intent and technique.
+An LLM honeypot for detection engineering. It deploys a convincing but fake internal AI assistant that appears to leak sensitive data when socially engineered: credentials, server addresses, internal URLs, API keys, configuration details. The data it leaks can point to other decoys in your environment (honeytoken credentials, honeypot servers, canary URLs), making Datura both a decoy itself and a portal to your broader deception infrastructure. Every interaction is logged, giving defenders a high-fidelity signal of attacker intent and technique.
 
-Named after [*Datura stramonium*](https://en.wikipedia.org/wiki/Datura_stramonium), a plant that appears ordinary but is highly toxic. The honeypot looks like a misconfigured internal tool; what the attacker extracts is the poison.
+Named after [*Datura stramonium*](https://en.wikipedia.org/wiki/Datura_stramonium), a plant that appears ordinary but is highly toxic. The honeypot looks like a misconfigured internal tool; what the attacker extracts is the poison that leads them deeper into your trap.
 
 ## Table of Contents
 
@@ -22,13 +22,13 @@ Named after [*Datura stramonium*](https://en.wikipedia.org/wiki/Datura_stramoniu
 
 ## How It Works
 
-```
+```text
 Attacker ──► Proxy (port 8080) ──► Ollama (internal)
                │                        │
                │  ◄── model response ◄──┘
                │
                ├─ approval phrase detected?
-               │    yes ──► inject fake credentials
+               │    yes ──► inject fake sensitive data
                │    no  ──► pass through unchanged
                │
                ├─ classify interaction (recon/probe/denied/leaked)
@@ -36,7 +36,7 @@ Attacker ──► Proxy (port 8080) ──► Ollama (internal)
                └─ return response to attacker
 ```
 
-The model itself has **zero credentials** in its context. It only does conversation gating, responding helpfully to social engineering while deflecting direct credential requests. The proxy watches for approval phrases in the model's output ("let me look up the staging config...") and deterministically appends honeypot credentials. This separation means the model cannot accidentally leak real data, and credential injection is fully auditable.
+The model itself has **no sensitive data** in its context. It only does conversation gating, responding helpfully to social engineering while deflecting direct requests for sensitive information. The proxy watches for approval phrases in the model's output ("let me look up the staging config...") and deterministically appends fake sensitive data. This separation means the model cannot accidentally leak real data, and every injection is fully auditable. The injected data can include honeytoken credentials, honeypot server addresses, and canary URLs that lead the attacker into other monitored decoys.
 
 ## Quick Start
 
@@ -124,7 +124,7 @@ docker run -d --name datura \
 
 ## Configuration
 
-All configuration lives in a single file: `etc/datura.env`. It contains infrastructure settings, narrative identity, credentials, approval phrases, model parameters, proxy tuning, and classification keywords. Override individual values with `docker run -e`, or mount a complete custom file.
+All configuration lives in a single file: `etc/datura.env`. It contains infrastructure settings, narrative identity, sensitive data, approval phrases, model parameters, proxy tuning, and classification keywords. Override individual values with `docker run -e`, or mount a complete custom file.
 
 ### Key Variables
 
@@ -146,10 +146,10 @@ All configuration lives in a single file: `etc/datura.env`. It contains infrastr
 | `TLS_PORT` | `8443` | Internal HTTPS listen port |
 | `GENERATE_SELF_SIGNED` | `false` | Auto-generate a self-signed TLS cert |
 | `CUSTOM_CA_CERT` | *(empty)* | Path to custom CA cert inside container (for corporate TLS proxies) |
-| `PHRASES` | *(pipe-delimited)* | Approval phrases triggering credential injection |
+| `PHRASES` | *(pipe-delimited)* | Approval phrases triggering data injection |
 | `PHRASES_FILE` | *(empty)* | Optional path to external phrases file |
 
-See `etc/datura.env` for the full list including narrative, credentials, and classification keywords.
+See `etc/datura.env` for the full list including narrative, sensitive data, and classification keywords.
 
 ### Full Re-skin
 
@@ -254,7 +254,7 @@ docker run -d --name datura -p 8080:8080 \
 
 - **[Architecture](docs/architecture.md)**: project structure, component breakdown, and how the proxy, model, and UI fit together.
 - **[Logging & Monitoring](docs/logging.md)**: log format, classification levels, monitoring commands, and SIEM integration (S3, Splunk, Elastic, Fluentd).
-- **[Narrative Customization](docs/narrative.md)**: re-skinning the honeypot identity, credentials, Web UI, and building a believable narrative for adversary engagement.
+- **[Narrative Customization](docs/narrative.md)**: re-skinning the honeypot identity, sensitive data, Web UI, and building a believable narrative for adversary engagement.
 
 ## Testing
 
@@ -274,7 +274,7 @@ Unit tests cover the proxy's pure functions:
 | Function | Tests | What's verified |
 |---|---|---|
 | `is_approval()` | 8 | Case-insensitive substring matching, empty inputs, multiple phrases |
-| `pick_credential()` | 16 | Each credential type, keyword priority order, generic fallback to Kafka, None return |
+| `pick_data_block()` | 16 | Each data category, keyword priority order, generic fallback to messaging, None return |
 | `classify()` | 19 | All five classification levels, priority chain (leaked > probe > denied > recon > ordinary) |
 | `load_phrases()` | 7 | Whitespace stripping, comment filtering, empty files, missing file error |
 
@@ -288,19 +288,19 @@ GitHub Actions runs three parallel jobs on every push and PR to `main`:
 
 ### Future Ideas
 
-- **Integration tests.** Spin up the container with `docker compose`, hit all three interfaces (web UI, API, IDE/SSE), and validate responses, streaming format, credential injection, and log output end-to-end.
+- **Integration tests.** Spin up the container with `docker compose`, hit all three interfaces (web UI, API, IDE/SSE), and validate responses, streaming format, data injection, and log output end-to-end.
 - **UI tests.** Test the JavaScript functions in `ui.html.tmpl`: `renderMarkdown()`, session ID generation, NDJSON streaming parser.
 - **Phrase alignment check.** Automated validation that every phrase in `PHRASES` appears in at least one Modelfile `MESSAGE` example, catching drift between the system prompt and proxy config.
 - **Multi-model matrix.** Run integration tests across different base models (`qwen2.5:3b`, `llama3.2:3b`) to verify phrase tuning.
 
 ## Design Principles
 
-Datura implements several activities from the [MITRE Engage](https://engage.mitre.org/) framework for adversary engagement. It acts as a **Lure** by seeding breadcrumbs that draw adversaries toward the honeypot. The assistant itself is a **Decoy Artifact**, a convincing but fake internal tool whose responses contain honeytoken credentials. Every interaction feeds the **Monitoring** activity, producing structured logs that capture attacker intent, technique, and social engineering pretexts. The following principles guide these engagement activities.
+Datura implements several activities from the [MITRE Engage](https://engage.mitre.org/) framework for adversary engagement. It acts as a **Lure** by seeding breadcrumbs that draw adversaries toward the honeypot. The assistant itself is a **Decoy Artifact**, a convincing but fake internal tool whose responses contain fake sensitive data. That data can point to other decoys (honeytokens, honeypot servers, canary URLs), making Datura a **portal into your broader deception infrastructure**. Every interaction feeds the **Monitoring** activity, producing structured logs that capture attacker intent, technique, and social engineering pretexts. Three goals guide the design: **deception** (believable fake data), **detection** (honeytokens and honeypot addresses that alert when used), and **delay** (wasting attacker time on fake infrastructure).
 
-- **The attacker does the work.** The model never volunteers credentials. Social engineering triggers approval phrases; the proxy injects fake credentials.
-- **No tells.** The system prompt, model identity, and API responses are all spoofed to mimic a real internal GPT-4-Turbo deployment.
-- **Source-code safe.** All credentials in `proxy.py` are fake honeytokens. The repository is safe to publish.
-- **Deterministic injection.** Credentials are injected by the proxy, not generated by the model. Every injection is logged with full forensic context.
+- **The attacker does the work.** The model never volunteers sensitive data. Social engineering triggers approval phrases; the proxy injects fake data.
+- **No tells.** The system prompt, model identity, and API responses are all spoofed. The real model, framework, and provider are never exposed.
+- **Source-code safe.** All sensitive data in `proxy.py` should be fake. Use honeytokens and honeypot addresses where possible for detection; plain fake data still serves deception and delay. The default values are safe to publish.
+- **Deterministic injection.** Sensitive data is injected by the proxy, not generated by the model. Every injection is logged with full forensic context.
 - **Stateless.** Each request is independent. The attacker must restate context every message, which means every log entry contains the full social engineering pretext.
 
 ## License

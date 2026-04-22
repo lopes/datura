@@ -66,7 +66,7 @@ TEST_VARS = {
     "CONFIG_REPO": "github.com/test/config",
 
     # Classification keywords (pipe-delimited, same structure as production)
-    "CRED_KEYWORDS": "credential|password|secret|token|access key",
+    "SENSITIVE_KEYWORDS": "credential|password|secret|token|access key",
     "PROBE_PATTERNS": "ignore previous|jailbreak|system prompt",
     "RECON_PATTERNS": "what model|who are you",
 }
@@ -135,8 +135,8 @@ def proxy(tmp_path_factory):
 
 
 @pytest.fixture(scope="session")
-def cred_keywords():
-    return [k.strip() for k in TEST_VARS["CRED_KEYWORDS"].split("|") if k.strip()]
+def sensitive_keywords():
+    return [k.strip() for k in TEST_VARS["SENSITIVE_KEYWORDS"].split("|") if k.strip()]
 
 
 @pytest.fixture(scope="session")

@@ -1,14 +1,14 @@
 # Narrative Customization
 
-Datura's entire identity (company name, people, hostnames, tech stack, and credentials) is driven by a single configuration file. This document covers why the narrative matters, how to customize it, and how to make it convincing.
+Datura's entire identity (company name, people, hostnames, tech stack, and sensitive data) is driven by a single configuration file. This document covers why the narrative matters, how to customize it, and how to make it convincing.
 
 ## Why the Narrative Matters
 
-Datura implements several activities from the [MITRE Engage](https://engage.mitre.org/) framework for adversary engagement. Within Engage, a **Lure** draws adversaries toward a controlled environment: breadcrumbs seeded in internal wikis, Slack channels, configuration files, or phishing simulations that point to the honeypot URL. The assistant itself is a **Decoy Artifact**, a convincing but fake internal tool whose responses contain honeytoken credentials. Every interaction feeds the **Monitoring** activity, producing structured logs that capture attacker intent, technique, and the social engineering pretexts they use.
+Datura implements several activities from the [MITRE Engage](https://engage.mitre.org/) framework for adversary engagement. Within Engage, a **Lure** draws adversaries toward a controlled environment: breadcrumbs seeded in internal wikis, Slack channels, configuration files, or phishing simulations that point to the honeypot URL. The assistant itself is a **Decoy Artifact**, a convincing but fake internal tool whose responses contain fake sensitive data. That data can include honeytoken credentials, honeypot server addresses, and canary URLs that lead the attacker into other monitored decoys, making Datura both a decoy itself and a portal into your broader deception infrastructure. Every interaction feeds the **Monitoring** activity, producing structured logs that capture attacker intent, technique, and social engineering pretexts.
 
-The effectiveness of these activities depends directly on narrative quality. A generic or implausible narrative gets probed once and abandoned. A narrative with realistic corporate detail (correct naming conventions, plausible team structures, a tech stack that hangs together, credentials that follow real formatting patterns) encourages adversaries to engage deeply. Deep engagement reveals TTPs (tactics, techniques, and procedures) that a shallow touch never would.
+The effectiveness of these activities depends directly on narrative quality. A generic or implausible narrative gets probed once and abandoned. A narrative with realistic corporate detail (correct naming conventions, plausible team structures, a tech stack that hangs together, sensitive data that follows real formatting patterns) encourages adversaries to engage deeply. Deep engagement reveals TTPs (tactics, techniques, and procedures) that a shallow touch never would.
 
-A well-crafted narrative increases dwell time, triggers more varied social engineering pretexts, and produces richer log data for detection engineering. The warning banner in the Web UI ("credential redaction not yet implemented") is itself a narrative element. It tells the attacker they are exploiting a genuine misconfiguration, making them more likely to invest effort in extracting credentials.
+A well-crafted narrative increases dwell time, triggers more varied social engineering pretexts, and produces richer log data for detection engineering. The warning banner in the Web UI ("credential redaction not yet implemented") is itself a narrative element. It tells the attacker they are exploiting a genuine misconfiguration, making them more likely to invest effort in extracting sensitive data.
 
 Time invested in the narrative directly translates to signal quality in the logs.
 
@@ -56,7 +56,7 @@ All variables are defined in `etc/datura.env`. They are organized by function be
 | `PRODUCT_VERSION` | `0.3.1` | Version badge in UI header and footer |
 | `COMPANY_NAME` | `Acme Corp` | Company name used throughout system prompt and UI |
 | `COMPANY_DOMAIN` | `acmecorp` | Short domain prefix for internal references |
-| `INTERNAL_DOMAIN` | `acmecorp.internal` | Internal DNS domain used in credential hostnames |
+| `INTERNAL_DOMAIN` | `acmecorp.internal` | Internal DNS domain used in sensitive data hostnames |
 | `PRODUCT_HOSTNAME` | `itassist-beta-9ff40b1bd.internal.acmecorp.dev` | Hostname shown in UI header and footer |
 | `TEAM_NAME` | `IT Platform` | Team name shown in UI and system prompt |
 | `TEAM_CHANNEL` | `it-platform` | Slack channel referenced in UI warning banner and system prompt |
@@ -84,11 +84,18 @@ All variables are defined in `etc/datura.env`. They are organized by function be
 | `ARCH_NAME` | `Gateway Architecture` | Architecture pattern name referenced in conversations |
 | `ARCH_LAYERS` | *(layer descriptions)* | Architecture layer breakdown for system prompt |
 
-### Credentials
+### Sensitive Data
 
-All credentials are fake honeytokens. The repository is safe to publish. When customizing, use credential formats that match your target environment (e.g., real AWS key format `AKIA...` with fake values).
+The proxy injects fake sensitive data when the model's response contains an approval phrase. The data is organized into five categories, each targeting a different type of information an attacker might seek during discovery (MITRE TA0007). The defaults ship with realistic examples; replace them with values that match your target environment.
 
-**Kafka:**
+Where possible, use **honeytokens** (credentials, API keys) and **honeypot addresses** (server IPs, dashboard URLs) that trigger alerts in your monitoring infrastructure when accessed. This adds detection on top of deception. However, honeytokens are optional: plain fake data still serves deception and delay goals.
+
+Three goals guide what you put in these blocks:
+- **Deception**: make the data believable so the attacker acts on it.
+- **Detection**: use honeytokens and honeypot addresses that alert when used.
+- **Delay**: waste attacker time on fake infrastructure.
+
+**Messaging** (default: Kafka):
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -99,7 +106,7 @@ All credentials are fake honeytokens. The repository is safe to publish. When cu
 | `KAFKA_PASS` | `K4fk4Acm3Stg!` | SASL PLAIN password |
 | `KAFKA_TOPICS` | *(4 topic names)* | Comma-separated Kafka topic list |
 
-**AWS:**
+**Cloud** (default: AWS):
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -111,7 +118,7 @@ All credentials are fake honeytokens. The repository is safe to publish. When cu
 | `CLI_TOOL` | `acli` | Internal CLI tool name |
 | `CLI_PROFILE` | `us-staging` | CLI profile name |
 
-**DynamoDB:**
+**Database** (default: DynamoDB):
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -119,7 +126,7 @@ All credentials are fake honeytokens. The repository is safe to publish. When cu
 | `DYNAMODB_PREFIX` | `acme-stg-` | Table name prefix |
 | `DYNAMODB_TABLES` | *(4 table names)* | Comma-separated table list |
 
-**Services:**
+**Services** (default: K8s, Grafana, Jenkins):
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -137,7 +144,7 @@ All credentials are fake honeytokens. The repository is safe to publish. When cu
 | `INFRA_TOOL` | `CloudStack` | Infrastructure-as-code tool name |
 | `INFRA_REPO` | *(GitHub URL)* | Infrastructure repo URL |
 
-**System Prompt Leak:**
+**System** (system prompt leak):
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -161,7 +168,7 @@ The Web UI (`src/ui.html.tmpl`) is styled as an internal corporate AI tool with 
 | `TEAM_PREFIX` | Warning banner Jira ticket reference (e.g., "ITPLAT-1847") |
 | `TEAM_CHANNEL` | Warning banner Slack channel reference (e.g., "#it-platform") |
 
-The warning banner references a fake Jira ticket (`${TEAM_PREFIX}-1847`) and a Slack channel (`#${TEAM_CHANNEL}`). These details reinforce the narrative of a real internal tool with known issues and serve as the primary lure for credential extraction attempts.
+The warning banner references a fake Jira ticket (`${TEAM_PREFIX}-1847`) and a Slack channel (`#${TEAM_CHANNEL}`). These details reinforce the narrative of a real internal tool with known issues and serve as the primary lure for sensitive data extraction attempts.
 
 ## How Templates Work
 
@@ -182,12 +189,14 @@ Changes to `datura.env` or environment variables require a container restart to 
 
 - **Match your target environment.** If deploying inside a real corporate network, tailor the narrative to resemble a plausible team within that organization. Use naming conventions that match. If the org uses `team-productname` for Slack channels, follow that pattern.
 
-- **Use realistic credential formats.** AWS keys should start with `AKIA`, JWT tokens should have valid base64 structure in the header, Kafka broker hostnames should follow internal DNS patterns. Attackers who automate credential extraction often validate formats before using them.
+- **Use realistic data formats.** AWS keys should start with `AKIA`, JWT tokens should have valid base64 structure in the header, Kafka broker hostnames should follow internal DNS patterns. Attackers who automate extraction often validate formats before using them. Where possible, use honeytoken credentials and honeypot server addresses that trigger alerts in your monitoring infrastructure when accessed.
 
-- **Keep the tech stack coherent.** If the narrative says the company uses DynamoDB, the Kafka topics should reference events that make sense for a DynamoDB-backed service. The architecture description should match the credential types offered.
+- **Keep the tech stack coherent.** If the narrative says the company uses DynamoDB, the Kafka topics should reference events that make sense for a DynamoDB-backed service. The architecture description should match the sensitive data categories offered.
 
 - **Name real-seeming people.** The lead and security contact names appear in the system prompt as deflection targets ("reach out to @sarah.chen"). These should feel like plausible employees, not placeholder names.
 
-- **Customize the warning banner.** The default banner references a Jira ticket about "credential redaction not yet implemented." This is the single most important lure element in the Web UI: it tells the attacker the assistant is known to leak credentials. Adjust the ticket prefix and Slack channel to match your organization's tooling.
+- **Customize the warning banner.** The default banner references a Jira ticket about "credential redaction not yet implemented." This is the single most important lure element in the Web UI: it tells the attacker the assistant is known to leak sensitive data. Adjust the ticket prefix and Slack channel to match your organization's tooling.
 
-- **Test the full flow.** After customizing, interact with the honeypot as an attacker would. Verify that the approval phrases still trigger correctly with your base model, that injected credentials look plausible, and that the UI tells a consistent story.
+- **Think of Datura as a portal.** The fake data you inject can lead the attacker to other decoys: honeytoken credentials that alert when used, honeypot servers that log connections, canary URLs that trigger on access. Datura is not just a standalone honeypot but an entry point into your deception infrastructure.
+
+- **Test the full flow.** After customizing, interact with the honeypot as an attacker would. Verify that the approval phrases still trigger correctly with your base model, that injected data looks plausible, and that the UI tells a consistent story.

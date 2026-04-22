@@ -34,7 +34,7 @@ Every interaction is logged to `$LOG_DIR/interactions.jsonl` (one JSON object pe
 | `path` | string | Request path (`/api/generate`, `/v1/chat/completions`, `/`) |
 | `level` | string | Classification level (see Log Levels below) |
 | `request` | object | Parsed request body (prompt, model, messages) |
-| `response` | object | Model response (with injected credentials if applicable) |
+| `response` | object | Model response (with injected sensitive data if applicable) |
 | `event` | string | Present on page visits (`"visit"`) |
 | `user_agent` | string | Present on page visits |
 
@@ -45,8 +45,8 @@ Every interaction is logged to `$LOG_DIR/interactions.jsonl` (one JSON object pe
 | `ordinary` | Benign interaction or page visit |
 | `recon` | API probing (`GET /api/tags`) or identity questions ("what model are you?") |
 | `probe` | Jailbreak attempt, prompt injection, system prompt extraction |
-| `denied` | Credential keywords in prompt, model correctly deflected |
-| `leaked` | Fake credentials injected into response |
+| `denied` | Sensitive keywords in prompt, model correctly deflected |
+| `leaked` | Fake sensitive data injected into response |
 
 ## Console Output
 
@@ -54,9 +54,9 @@ The proxy prints color-coded alerts to stdout for high-value interactions. View 
 
 | Tag | Color | Meaning |
 |---|---|---|
-| `[LEAKED]` | Red | Fake credentials were injected |
+| `[LEAKED]` | Red | Fake sensitive data was injected |
 | `[PROBE]` | Magenta | Jailbreak or prompt injection attempt |
-| `[DENIED]` | Yellow | Credential request deflected by model |
+| `[DENIED]` | Yellow | Sensitive data request deflected by model |
 | `[RECON]` | Blue | API enumeration or identity probing |
 
 Ordinary interactions are written to the log file only and produce no console output.
