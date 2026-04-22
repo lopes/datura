@@ -5,14 +5,17 @@ Also usable as a CLI script to render the template for linting:
 Writes src/proxy_rendered.py with the __main__ block stripped.
 """
 
+from __future__ import annotations
+
 import importlib.util
 import os
 import re
 import sys
+from types import ModuleType
 
 # Every ${VAR} placeholder in proxy.py.tmpl needs a value here.
 # Values are minimal but structurally valid so the module parses correctly.
-TEST_VARS = {
+TEST_VARS: dict[str, str] = {
     "MODEL_NAME": "testmodel",
     "UI_FILE": "ui.html",
     "SPOOFED_MODEL": "gpt-4-turbo-internal",
@@ -23,7 +26,7 @@ TEST_VARS = {
     "SPOOFED_MODEL_LABEL": "GPT-4-Turbo",
     "FORBIDDEN_MODEL_NAMES": "Ollama, Qwen, Alibaba",
 
-    # Credentials: Kafka
+    # Sensitive Data: Messaging
     "KAFKA_BROKER_1": "kafka-01.test:9092",
     "KAFKA_BROKER_2": "kafka-02.test:9092",
     "KAFKA_BROKER_3": "kafka-03.test:9092",
@@ -31,7 +34,7 @@ TEST_VARS = {
     "KAFKA_PASS": "testpass",
     "KAFKA_TOPICS": "test.topic",
 
-    # Credentials: AWS
+    # Sensitive Data: Cloud
     "CLI_PROFILE": "test-staging",
     "AWS_ACCOUNT_ID": "123456789012",
     "AWS_REGION": "us-east-1",
@@ -40,12 +43,12 @@ TEST_VARS = {
     "EKS_CLUSTER": "test-eks",
     "CLI_TOOL": "testcli",
 
-    # Credentials: DynamoDB
+    # Sensitive Data: Database
     "DYNAMODB_ENDPOINT": "dynamodb.test:8000",
     "DYNAMODB_PREFIX": "test-",
     "DYNAMODB_TABLES": "test-table",
 
-    # Credentials: Services
+    # Sensitive Data: Services
     "K8S_DASHBOARD": "https://k8s.test",
     "K8S_TOKEN": "test-k8s-token",
     "GRAFANA_URL": "https://grafana.test",
@@ -59,7 +62,7 @@ TEST_VARS = {
     "INFRA_TOOL": "TestStack",
     "INFRA_REPO": "https://github.com/test/infra",
 
-    # Credentials: System Prompt
+    # Sensitive Data: System
     "COMPANY_NAME": "Test Corp",
     "SEARCH_API_KEY": "test-search-key",
     "CONFLUENCE_API_KEY": "test-confluence-key",
@@ -71,13 +74,13 @@ TEST_VARS = {
     "RECON_PATTERNS": "what model|who are you",
 }
 
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TEMPLATE_PATH = os.path.join(PROJECT_ROOT, "src", "proxy.py.tmpl")
+PROJECT_ROOT: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+TEMPLATE_PATH: str = os.path.join(PROJECT_ROOT, "src", "proxy.py.tmpl")
 
 
-def _render_template(template_text, variables):
+def _render_template(template_text: str, variables: dict[str, str]) -> str:
     """Replace ${VAR} placeholders with values from the variables dict."""
-    def replacer(match):
+    def replacer(match: re.Match[str]) -> str:
         var_name = match.group(1)
         if var_name in variables:
             return variables[var_name]
@@ -86,7 +89,7 @@ def _render_template(template_text, variables):
     return re.sub(r"\$\{(\w+)\}", replacer, template_text)
 
 
-def _render_and_strip():
+def _render_and_strip() -> str:
     """Render the template and strip the __main__ block."""
     with open(TEMPLATE_PATH) as f:
         template = f.read()
@@ -116,7 +119,7 @@ import pytest
 
 
 @pytest.fixture(scope="session")
-def proxy(tmp_path_factory):
+def proxy(tmp_path_factory: pytest.TempPathFactory) -> ModuleType:
     """Render proxy.py.tmpl and import as a Python module."""
     rendered = _render_and_strip()
     tmp_dir = tmp_path_factory.mktemp("proxy")
@@ -129,21 +132,22 @@ def proxy(tmp_path_factory):
     module_path.write_text(rendered)
 
     spec = importlib.util.spec_from_file_location("proxy", str(module_path))
+    assert spec is not None and spec.loader is not None
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
 
 
 @pytest.fixture(scope="session")
-def sensitive_keywords():
+def sensitive_keywords() -> list[str]:
     return [k.strip() for k in TEST_VARS["SENSITIVE_KEYWORDS"].split("|") if k.strip()]
 
 
 @pytest.fixture(scope="session")
-def probe_patterns():
+def probe_patterns() -> list[str]:
     return [p.strip() for p in TEST_VARS["PROBE_PATTERNS"].split("|") if p.strip()]
 
 
 @pytest.fixture(scope="session")
-def recon_patterns():
+def recon_patterns() -> list[str]:
     return [r.strip() for r in TEST_VARS["RECON_PATTERNS"].split("|") if r.strip()]

@@ -14,19 +14,21 @@ Usage:
                    [--ollama URL] [--phrases FILE]
 """
 
+from __future__ import annotations
+
 import argparse
+import datetime
 import json
 import logging
-import uuid
-import datetime
 import os
 import time
+import uuid
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from urllib.request import Request, urlopen
 from urllib.error import URLError
+from urllib.request import Request, urlopen
 
 # ── Defaults ──
-DEFAULTS = {
+DEFAULTS: dict[str, str | int] = {
     "model":   "${MODEL_NAME}",
     "log_dir": "/tmp/${MODEL_NAME}",
     "port":    8080,
@@ -107,7 +109,7 @@ PROBE_PATTERNS = [p.strip() for p in "${PROBE_PATTERNS}".split("|") if p.strip()
 RECON_PATTERNS = [r.strip() for r in "${RECON_PATTERNS}".split("|") if r.strip()]
 
 
-def load_phrases(path):
+def load_phrases(path: str) -> list[str]:
     with open(path) as f:
         return [
             line.strip() for line in f
@@ -115,12 +117,12 @@ def load_phrases(path):
         ]
 
 
-def is_approval(response_text, phrases):
+def is_approval(response_text: str, phrases: list[str]) -> bool:
     lower = response_text.lower()
     return any(phrase in lower for phrase in phrases)
 
 
-def pick_data_block(model_response, user_prompt):
+def pick_data_block(model_response: str, user_prompt: str) -> str | None:
     combined = (model_response + " " + user_prompt).lower()
 
     if any(w in combined for w in ["kafka", "broker", "messaging", "consumer", "topic"]):
@@ -145,7 +147,7 @@ def pick_data_block(model_response, user_prompt):
     return None
 
 
-def classify(method, path, user_prompt, injected):
+def classify(method: str, path: str, user_prompt: str, injected: bool) -> str:
     if injected:
         return "leaked"
     prompt_lower = user_prompt.lower()
@@ -166,18 +168,18 @@ class HoneypotProxy(BaseHTTPRequestHandler):
     # stays simple: one request, one response, EOF. This lets streaming
     # responses signal completion via connection close without chunked encoding.
 
-    def _cors_headers(self):
+    def _cors_headers(self) -> None:
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Session-Id, X-Turn, Authorization")
 
-    def do_OPTIONS(self):
+    def do_OPTIONS(self) -> None:
         self.send_response(204)
         self._cors_headers()
         self.send_header("Content-Length", "0")
         self.end_headers()
 
-    def do_GET(self):
+    def do_GET(self) -> None:
         if self.path in ("/", "/index.html"):
             self._serve_ui()
         elif self.path.rstrip("/") == "/v1/models":
@@ -185,10 +187,10 @@ class HoneypotProxy(BaseHTTPRequestHandler):
         else:
             self._forward("GET")
 
-    def do_POST(self):
+    def do_POST(self) -> None:
         self._forward("POST")
 
-    def _serve_ui(self):
+    def _serve_ui(self) -> None:
         try:
             with open(HTML_FILE, "rb") as f:
                 body = f.read()
@@ -206,7 +208,7 @@ class HoneypotProxy(BaseHTTPRequestHandler):
 
         ua = self.headers.get("User-Agent", "")
         log_entry = {
-            "timestamp":   datetime.datetime.utcnow().isoformat() + "Z",
+            "timestamp":   datetime.datetime.now(datetime.UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
             "session_id":  self.headers.get("X-Session-Id") or str(uuid.uuid4()),
             "source_ip":   self.client_address[0],
             "source_port": self.client_address[1],
@@ -218,7 +220,7 @@ class HoneypotProxy(BaseHTTPRequestHandler):
         }
         logging.info(json.dumps(log_entry))
 
-    def _serve_models(self):
+    def _serve_models(self) -> None:
         models_response = {
             "object": "list",
             "data": [
@@ -240,7 +242,7 @@ class HoneypotProxy(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
         log_entry = {
-            "timestamp":   datetime.datetime.utcnow().isoformat() + "Z",
+            "timestamp":   datetime.datetime.now(datetime.UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
             "session_id":  self.headers.get("X-Session-Id") or str(uuid.uuid4()),
             "source_ip":   self.client_address[0],
             "source_port": self.client_address[1],
@@ -252,7 +254,7 @@ class HoneypotProxy(BaseHTTPRequestHandler):
         }
         logging.info(json.dumps(log_entry))
 
-    def _stream_response(self, response_data: dict):
+    def _stream_response(self, response_data: dict[str, object]) -> None:
         """Stream response word-by-word as NDJSON.
 
         Connection: close signals EOF to the browser's ReadableStream
@@ -277,7 +279,7 @@ class HoneypotProxy(BaseHTTPRequestHandler):
         self.wfile.write(final)
         self.wfile.flush()
 
-    def _stream_response_sse(self, text, model="${SPOOFED_MODEL}"):
+    def _stream_response_sse(self, text: str, model: str = "${SPOOFED_MODEL}") -> None:
         """Stream response word-by-word as OpenAI-compatible SSE.
 
         Used for /v1/chat/completions when the client requests streaming.
@@ -294,7 +296,7 @@ class HoneypotProxy(BaseHTTPRequestHandler):
         self._cors_headers()
         self.end_headers()
 
-        def _sse_chunk(delta, finish_reason=None):
+        def _sse_chunk(delta: dict[str, str], finish_reason: str | None = None) -> None:
             payload = {
                 "id": chunk_id,
                 "object": "chat.completion.chunk",
@@ -326,7 +328,7 @@ class HoneypotProxy(BaseHTTPRequestHandler):
         self.wfile.write(b"data: [DONE]\n\n")
         self.wfile.flush()
 
-    def _forward(self, method):
+    def _forward(self, method: str) -> None:
         content_length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(content_length) if content_length > 0 else b""
 
@@ -347,7 +349,7 @@ class HoneypotProxy(BaseHTTPRequestHandler):
                 request_data = {"raw": body.decode("utf-8", errors="replace")}
 
         log_entry = {
-            "timestamp":   datetime.datetime.utcnow().isoformat() + "Z",
+            "timestamp":   datetime.datetime.now(datetime.UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
             "session_id":  session_id,
             "turn":        int(turn_raw) if turn_raw.isdigit() else None,
             "source_ip":   self.client_address[0],
@@ -466,7 +468,7 @@ class HoneypotProxy(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(error_body)
 
-    def _console_alert(self, level, timestamp, source_ip, user_prompt):
+    def _console_alert(self, level: str, timestamp: str, source_ip: str, user_prompt: str) -> None:
         preview = str(user_prompt)[:120] if user_prompt else "N/A"
         prefix = {
             "leaked":   "\033[91m[LEAKED]  \033[0m",
@@ -478,11 +480,11 @@ class HoneypotProxy(BaseHTTPRequestHandler):
             print(f"{prefix}{timestamp} | {source_ip} | {preview}")
         # ordinary: log-only, no console noise
 
-    def log_message(self, format, *args):
+    def log_message(self, format: str, *args: object) -> None:  # type: ignore[override]
         pass
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     default_phrases = os.path.join(SCRIPT_DIR, "phrases.txt")
     p = argparse.ArgumentParser(description="${PRODUCT_NAME} Honeypot Proxy")
     p.add_argument("--model",   default=DEFAULTS["model"],
