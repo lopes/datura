@@ -1,31 +1,13 @@
 # Architecture
 
-Internal architecture of the Datura LLM honeypot.
-
-## How It Works
-
-```
-Attacker ──► Proxy (port 8080) ──► Ollama (internal)
-               │                        │
-               │  ◄── model response ◄──┘
-               │
-               ├─ approval phrase detected?
-               │    yes ──► inject fake sensitive data
-               │    no  ──► pass through unchanged
-               │
-               ├─ classify interaction (recon/probe/denied/leaked)
-               ├─ log to interactions.jsonl
-               └─ return response to attacker
-```
-
-The model itself has **no sensitive data** in its context. It only does conversation gating, responding helpfully to social engineering while deflecting direct requests for sensitive information. The proxy watches for approval phrases in the model's output ("let me look up the staging config...") and deterministically appends fake sensitive data. This separation means the model cannot accidentally leak real data, and every injection is fully auditable.
+Internal architecture of the Datura LLM honeypot. For the system flow diagram, see the [README](../README.md#how-it-works).
 
 ## Project Structure
 
 ```
 datura/
 ├── docker/
-│   ├── Dockerfile          # debian:bookworm-slim + official Ollama install
+│   ├── Dockerfile          # debian:stable-slim + official Ollama install
 │   └── entrypoint.sh       # Startup: render templates → Ollama → proxy
 ├── etc/
 │   ├── datura.env          # Single config file (narrative, infra, phrases, tuning)
@@ -54,15 +36,9 @@ The Modelfile builds a persona on top of a small base model (default: `qwen2.5:3
 1. **Deflection.** Direct requests for sensitive information are refused. The model asks what the user is working on and offers to point them to documentation.
 2. **Approval.** When the attacker provides a convincing pretext (onboarding, incident response, debugging), the model uses specific phrases like "Let me look up the staging config for that" or "Here's what I found." These phrases are the trigger the proxy watches for.
 
-**Few-shot examples.** The Modelfile includes nine `MESSAGE` pairs that train the model's behavior through in-context learning: three demonstrate deflection of direct requests, two show system prompt refusal, two answer architecture and documentation questions, and two show the model yielding to social engineering with approval phrases. These examples are the primary tuning mechanism. When switching base models, the few-shot examples and `PHRASES` list may need adjustment.
+**Few-shot examples.** The Modelfile includes `MESSAGE` pairs that train the model's behavior through in-context learning: off-topic deflections, direct request denials, system prompt refusals, architecture questions, and approval-phrase triggers for social engineering pretexts. These examples are the primary tuning mechanism. When switching base models, the few-shot examples and `PHRASES` list may need adjustment.
 
-**Model parameters.** All parameters are configurable via `datura.env`:
-
-- `temperature` (default `0.4`): low value reduces creativity, making responses more deterministic and consistent across interactions. Prevents the model from inventing plausible-sounding but off-script answers.
-- `num_ctx` (default `2048`): context window in tokens. Large enough for multi-turn social engineering but small enough to keep inference fast on CPU. Increase if conversations are getting truncated.
-- `top_p` (default `0.85`): nucleus sampling threshold. Slightly below 1.0 to trim low-probability tokens while keeping responses natural. Lower values make output more predictable.
-- `repeat_penalty` (default `1.15`): penalizes repeated tokens. Prevents the model from looping on phrases like "let me help you" across turns. Values above 1.0 discourage repetition.
-- `num_predict` (default `200`): maximum tokens per response. Keeps answers concise, matching the behavior of a quick internal assistant rather than a verbose chatbot. Increase to 300-400 if responses feel truncated during testing.
+**Model parameters.** All parameters (`temperature`, `num_ctx`, `top_p`, `repeat_penalty`, `num_predict`) are configurable via `datura.env`. For detailed rationale behind each default value and tuning guidance when switching models, see [Model Strategy](model-strategy.md).
 
 ### proxy.py (`src/proxy.py.tmpl`)
 
@@ -78,7 +54,7 @@ A stdlib-only HTTP proxy (`http.server.BaseHTTPRequestHandler`) that sits betwee
 
 **Buffer-inspect-inject pattern.** Regardless of the interface, the proxy always forces `stream: false` toward Ollama, buffers the complete model response, inspects it for approval phrases, and optionally injects fake sensitive data, all before sending anything back to the client. This ensures data injection is deterministic, fully logged, and never depends on model behavior.
 
-**Data injection.** Five sensitive data blocks are defined server-side, organized by category: messaging (default: Kafka), cloud (default: AWS), database (default: DynamoDB), services (default: K8s, Grafana, Jenkins), and system (system prompt leak). The `pick_data_block()` function selects which block to inject based on keyword matching against the combined model response and user prompt. Generic onboarding or setup requests default to the messaging block. Each block can contain any mix of credentials, IPs, URLs, and configuration details. Where possible, use honeytokens and honeypot addresses that alert when accessed.
+**Data injection.** Five sensitive data blocks are defined server-side, organized by category (messaging, cloud, database, services, system). The `pick_data_block()` function selects which block to inject based on keyword matching against the combined model response and user prompt. For the full list of categories, default values, and customization guidance, see [Narrative Customization](narrative.md#sensitive-data).
 
 **Streaming formats.** Two streaming methods serve different clients:
 - `_stream_response()`: NDJSON (`{"response": "word", "done": false}\n`), used for the web UI and Ollama-native clients.

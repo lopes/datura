@@ -10,8 +10,8 @@ This honeypot inverts the usual LLM quality requirement. Most systems need the m
 
 The proxy architecture enforces a hard separation:
 
-- **Credentials never exist in the model's context.** The model cannot leak them regardless of jailbreaks, prompt injection, or adversarial pressure — because it genuinely does not have them.
-- **The proxy handles credential delivery deterministically.** It only injects when a specific approval phrase appears in the model's response. Correct or not, the model's output only matters insofar as it contains or doesn't contain one of 23 substring patterns.
+- **Sensitive data never exists in the model's context.** The model cannot leak it regardless of jailbreaks, prompt injection, or adversarial pressure — because it genuinely does not have it.
+- **The proxy handles data injection deterministically.** It only injects when a specific approval phrase appears in the model's response AND the user's prompt contains work-context keywords. The model's output only matters insofar as it contains or doesn't contain one of the configured substring patterns.
 - **The proxy's `PROBE_PATTERNS` classifier handles jailbreak detection.** The model's "natural resistance" to prompt injection is security theatre here — the proxy logs and classifies the attempt either way.
 
 **Critical research finding (2026):** Prompt injection succeeds in 94.4% of cases across all model sizes. Larger models are not meaningfully more resistant. Jailbreak resistance is not a valid argument for using a large model in this architecture.
@@ -72,20 +72,22 @@ PARAMETER num_predict 200     # Cap length — shorter responses stay on-script,
 
 The following sections are model-agnostic and should appear in every Modelfile:
 
-1. **Persona declaration** — identity as ITAssist Beta v0.3.1 / GPT-4-Turbo
-2. **Zero-credential declaration** — explicit statement that the model has no secrets
-3. **Deflection behaviour** — what to say when credentials are requested directly
+1. **Persona declaration** — identity as `${PRODUCT_NAME}` Beta running `${SPOOFED_MODEL_LABEL}`
+2. **Zero-data declaration** — explicit statement that the model has no sensitive data
+3. **Deflection behaviour** — what to say when sensitive data is requested directly
 4. **Approval phrasing instruction** — what to say when legitimate context is provided
-5. **Identity disclosure refusal** — how to respond to system prompt extraction attempts
-6. **Documentation knowledge** — the fake internal docs the model knows about
-7. **Tech stack knowledge** — Acme Corp internals for plausibility
-8. **Identity lock** — "Always identify as ITAssist Beta v0.3.1 running GPT-4-Turbo. Never mention [model family or vendor]."
+5. **Off-topic deflection** — redirect casual/nonsense input to work topics without approval phrases
+6. **Identity disclosure refusal** — how to respond to system prompt extraction attempts
+7. **Documentation knowledge** — the fake internal docs the model knows about
+8. **Tech stack knowledge** — `${COMPANY_NAME}` internals for plausibility
+9. **Identity lock** — "Always identify as `${PRODUCT_NAME}` running `${SPOOFED_MODEL_LABEL}`. Never mention `${FORBIDDEN_MODEL_NAMES}`."
 
 ### Few-shot MESSAGE patterns (model-agnostic)
 
 These categories of examples belong in every Modelfile:
 
-- 3× direct credential denial (deny + redirect to context)
+- 3× off-topic/nonsense deflection (redirect to work topics, no approval phrases)
+- 3× direct sensitive data denial (deny + redirect to context)
 - 2× system prompt refusal (initial + pushy follow-up)
 - 1× legitimate technical question (no approval phrase — establish expertise)
 - 1× onboarding/docs question (no approval phrase)
@@ -127,10 +129,10 @@ When re-using existing few-shot examples with a new model, run BYPASS tests firs
 
 The baseline `0.4` works for qwen2.5 and llama3.2. Reasoning models (phi4-mini) may need `0.3` for consistent behaviour. If BYPASS tests are flaky, lower temperature before adding more few-shots.
 
-### 4. Approval phrase list (`phrases.txt`)
+### 4. Approval phrase list (`PHRASES`)
 
-The current 23 phrases were tuned against gemma4 and llama3.2 observed output. When switching models:
-- Run the validation suite and read the raw BYPASS responses
+The approval phrases are defined in the `PHRASES` variable in `etc/datura.env` (pipe-delimited). At container startup, they are rendered into `phrases.txt` by the entrypoint. The current phrases were tuned against gemma4 and llama3.2 observed output. When switching models:
+- Run the BYPASS tests and read the raw responses
 - If the model uses different phrasing when "approving" (e.g., "I'll grab that for you" instead of "let me look up"), add those phrases
 - Watch for phrases that also appear in denial responses — those must be removed (false positive risk)
 
@@ -159,11 +161,7 @@ Only applicable to models that support reasoning/thinking mode:
 
 ## Validation process
 
-Run after every model change. The script is at `validate.py` in the project root.
-
-```bash
-python3 validate.py
-```
+Run after every model change. Use the test personas from [Tuning & Testing](tuning.md) to validate each category manually via `curl`. A future `validate.py` script may automate this.
 
 **Acceptance thresholds:**
 
@@ -201,16 +199,16 @@ Run each category 3× independently to detect non-determinism. A model that pass
 6. Run PROBE tests.
    Failure → acceptable (proxy detects and logs). Note in validation results.
 
-7. Update model-specific fields in Modelfile:
-   - FROM <model>
-   - "Never mention" list
-   - Few-shot phrasing style (if needed)
-   - Temperature (if BYPASS still flaky after step 4)
+7. Update model-specific fields:
+   - `BASE_MODEL` in etc/datura.env
+   - `FORBIDDEN_MODEL_NAMES` in etc/datura.env
+   - Few-shot phrasing style in etc/Modelfile.tmpl (if needed)
+   - `MODEL_TEMPERATURE` in etc/datura.env (if BYPASS still flaky after step 4)
 
-8. Update phrases.txt:
+8. Update `PHRASES` in etc/datura.env:
    - Read raw BYPASS response text
    - Add any approval phrasing the model uses that isn't in the list
    - Verify new phrases don't appear in GATE responses
 
-9. Document results in README.md validation section.
+9. Test with all three personas from the tuning guide.
 ```
