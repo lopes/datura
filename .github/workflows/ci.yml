@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - run: pip install ruff
+
+      - name: Render proxy template for linting
+        run: |
+          python -c "
+          import re, os
+          with open('src/proxy.py.tmpl') as f:
+              t = f.read()
+          rendered = re.sub(r'\\\$\{(\w+)\}', 'PLACEHOLDER', t)
+          with open('src/proxy_rendered.py', 'w') as f:
+              f.write(rendered)
+          "
+
+      - name: Lint proxy
+        run: ruff check src/proxy_rendered.py --select E,F,W --ignore E501
+
+      - name: Lint tests
+        run: ruff check tests/ --select E,F,W --ignore E501
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install pytest
+
+      - run: pytest -v tests/
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -f docker/Dockerfile -t datura:ci .
