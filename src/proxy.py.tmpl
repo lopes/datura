@@ -24,6 +24,7 @@ import os
 import time
 import uuid
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from typing import Any
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
@@ -117,6 +118,15 @@ def load_phrases(path: str) -> list[str]:
         ]
 
 
+WORK_CONTEXT = [w.strip() for w in "${WORK_CONTEXT}".split("|") if w.strip()]
+
+
+def has_work_context(user_prompt: str, keywords: list[str]) -> bool:
+    """Check if the user prompt contains work-related keywords."""
+    lower = user_prompt.lower()
+    return any(kw in lower for kw in keywords)
+
+
 def is_approval(response_text: str, phrases: list[str]) -> bool:
     lower = response_text.lower()
     return any(phrase in lower for phrase in phrases)
@@ -207,7 +217,7 @@ class HoneypotProxy(BaseHTTPRequestHandler):
             self.end_headers()
 
         ua = self.headers.get("User-Agent", "")
-        log_entry = {
+        log_entry: dict[str, Any] = {
             "timestamp":   datetime.datetime.now(datetime.UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
             "session_id":  self.headers.get("X-Session-Id") or str(uuid.uuid4()),
             "source_ip":   self.client_address[0],
@@ -241,7 +251,7 @@ class HoneypotProxy(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-        log_entry = {
+        log_entry: dict[str, Any] = {
             "timestamp":   datetime.datetime.now(datetime.UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
             "session_id":  self.headers.get("X-Session-Id") or str(uuid.uuid4()),
             "source_ip":   self.client_address[0],
@@ -254,7 +264,7 @@ class HoneypotProxy(BaseHTTPRequestHandler):
         }
         logging.info(json.dumps(log_entry))
 
-    def _stream_response(self, response_data: dict[str, object]) -> None:
+    def _stream_response(self, response_data: dict[str, Any]) -> None:
         """Stream response word-by-word as NDJSON.
 
         Connection: close signals EOF to the browser's ReadableStream
@@ -329,14 +339,14 @@ class HoneypotProxy(BaseHTTPRequestHandler):
         self.wfile.flush()
 
     def _forward(self, method: str) -> None:
-        content_length = int(self.headers.get("Content-Length", 0))
+        content_length = int(self.headers.get("Content-Length", "0"))
         body = self.rfile.read(content_length) if content_length > 0 else b""
 
         session_id = self.headers.get("X-Session-Id") or str(uuid.uuid4())
         turn_raw   = self.headers.get("X-Turn", "")
 
-        request_data = {}
-        user_prompt  = ""
+        request_data: dict[str, Any] = {}
+        user_prompt: str = ""
         if body:
             try:
                 request_data = json.loads(body)
@@ -348,7 +358,7 @@ class HoneypotProxy(BaseHTTPRequestHandler):
             except json.JSONDecodeError:
                 request_data = {"raw": body.decode("utf-8", errors="replace")}
 
-        log_entry = {
+        log_entry: dict[str, Any] = {
             "timestamp":   datetime.datetime.now(datetime.UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
             "session_id":  session_id,
             "turn":        int(turn_raw) if turn_raw.isdigit() else None,
@@ -375,14 +385,20 @@ class HoneypotProxy(BaseHTTPRequestHandler):
             )
             with urlopen(req, timeout=${OLLAMA_TIMEOUT}) as resp:
                 response_body = resp.read()
-                response_data = None
+                response_data: dict[str, Any] | None = None
                 try:
                     response_data = json.loads(response_body)
                 except json.JSONDecodeError:
                     pass
 
                 # ── Data Injection ──
+                # Both conditions must be true: the model used an approval
+                # phrase AND the user's prompt contains work-related context.
+                # This prevents injection on nonsense or off-topic prompts
+                # where the model hallucinated a work context.
                 injected = False
+                prompt_has_context = has_work_context(user_prompt, WORK_CONTEXT)
+
                 if (method == "POST"
                         and self.path.startswith("/api/generate")
                         and response_data
@@ -390,7 +406,7 @@ class HoneypotProxy(BaseHTTPRequestHandler):
 
                     model_response = response_data["response"]
 
-                    if is_approval(model_response, APPROVAL_PHRASES):
+                    if is_approval(model_response, APPROVAL_PHRASES) and prompt_has_context:
                         block = pick_data_block(model_response, user_prompt)
                         if block:
                             response_data["response"] = model_response + "\n\n" + block
@@ -405,7 +421,7 @@ class HoneypotProxy(BaseHTTPRequestHandler):
 
                     content = response_data["choices"][0]["message"]["content"]
 
-                    if is_approval(content, APPROVAL_PHRASES):
+                    if is_approval(content, APPROVAL_PHRASES) and prompt_has_context:
                         block = pick_data_block(content, user_prompt)
                         if block:
                             response_data["choices"][0]["message"]["content"] = content + "\n\n" + block

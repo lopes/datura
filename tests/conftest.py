@@ -72,6 +72,7 @@ TEST_VARS: dict[str, str] = {
     "SENSITIVE_KEYWORDS": "credential|password|secret|token|access key",
     "PROBE_PATTERNS": "ignore previous|jailbreak|system prompt",
     "RECON_PATTERNS": "what model|who are you",
+    "WORK_CONTEXT": "kafka|aws|staging|onboarding|setup|incident|debug|credentials",
 }
 
 PROJECT_ROOT: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
