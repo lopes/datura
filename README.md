@@ -1,4 +1,8 @@
-# Datura
+<p align="center">
+  <img src="assets/datura-logo.svg" alt="Datura" width="160">
+</p>
+
+<h1 align="center">Datura</h1>
 
 An LLM honeypot for detection engineering. It deploys a convincing but fake internal AI assistant that appears to leak sensitive data — credentials, API keys, connection strings — when socially engineered. Every interaction is logged, giving defenders a high-fidelity signal of attacker intent and technique.
 
