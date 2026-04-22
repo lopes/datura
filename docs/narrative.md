@@ -1,20 +1,20 @@
 # Narrative Customization
 
-Datura's entire identity — company name, people, hostnames, tech stack, and credentials — is driven by a single configuration file. This document covers why the narrative matters, how to customize it, and how to make it convincing.
+Datura's entire identity (company name, people, hostnames, tech stack, and credentials) is driven by a single configuration file. This document covers why the narrative matters, how to customize it, and how to make it convincing.
 
 ## Why the Narrative Matters
 
-Datura implements several activities from the [MITRE Engage](https://engage.mitre.org/) framework for adversary engagement. Within Engage, a **Lure** draws adversaries toward a controlled environment — breadcrumbs seeded in internal wikis, Slack channels, configuration files, or phishing simulations that point to the honeypot URL. The assistant itself is a **Decoy Artifact**: a convincing but fake internal tool whose responses contain honeytoken credentials. Every interaction feeds the **Monitoring** activity, producing structured logs that capture attacker intent, technique, and the social engineering pretexts they use.
+Datura implements several activities from the [MITRE Engage](https://engage.mitre.org/) framework for adversary engagement. Within Engage, a **Lure** draws adversaries toward a controlled environment: breadcrumbs seeded in internal wikis, Slack channels, configuration files, or phishing simulations that point to the honeypot URL. The assistant itself is a **Decoy Artifact**, a convincing but fake internal tool whose responses contain honeytoken credentials. Every interaction feeds the **Monitoring** activity, producing structured logs that capture attacker intent, technique, and the social engineering pretexts they use.
 
-The effectiveness of these activities depends directly on narrative quality. A generic or implausible narrative gets probed once and abandoned. A narrative with realistic corporate detail — correct naming conventions, plausible team structures, a tech stack that hangs together, credentials that follow real formatting patterns — encourages adversaries to engage deeply. Deep engagement reveals TTPs (tactics, techniques, and procedures) that a shallow touch never would.
+The effectiveness of these activities depends directly on narrative quality. A generic or implausible narrative gets probed once and abandoned. A narrative with realistic corporate detail (correct naming conventions, plausible team structures, a tech stack that hangs together, credentials that follow real formatting patterns) encourages adversaries to engage deeply. Deep engagement reveals TTPs (tactics, techniques, and procedures) that a shallow touch never would.
 
-A well-crafted narrative increases dwell time, triggers more varied social engineering pretexts, and produces richer log data for detection engineering. The warning banner in the Web UI ("credential redaction not yet implemented") is itself a narrative element — it tells the attacker they are exploiting a genuine misconfiguration, making them more likely to invest effort in extracting credentials.
+A well-crafted narrative increases dwell time, triggers more varied social engineering pretexts, and produces richer log data for detection engineering. The warning banner in the Web UI ("credential redaction not yet implemented") is itself a narrative element. It tells the attacker they are exploiting a genuine misconfiguration, making them more likely to invest effort in extracting credentials.
 
 Time invested in the narrative directly translates to signal quality in the logs.
 
 ## Customizing the Narrative
 
-All configuration — narrative, infrastructure, model parameters, approval phrases, and classification keywords — lives in a single file: `etc/datura.env`. At container startup, templates are rendered with these values via `envsubst`.
+All configuration (narrative, infrastructure, model parameters, approval phrases, and classification keywords) lives in a single file: `etc/datura.env`. At container startup, templates are rendered with these values via `envsubst`.
 
 ### Quick Tweak (Environment Variables)
 
@@ -155,11 +155,11 @@ The Web UI (`src/ui.html.tmpl`) is styled as an internal corporate AI tool with 
 | `TEAM_NAME` | Header subtitle ("by *Team Name*"), welcome message, footer |
 | `PRODUCT_HOSTNAME` | Environment info in header, footer |
 | `SPOOFED_MODEL` | Model name in header environment info ("model: ..."), footer |
-| `MODEL_NAME` | JavaScript `const MODEL` — used in API requests, not directly visible |
+| `MODEL_NAME` | JavaScript `const MODEL`, used in API requests, not directly visible |
 | `TEAM_PREFIX` | Warning banner Jira ticket reference (e.g., "ITPLAT-1847") |
 | `TEAM_CHANNEL` | Warning banner Slack channel reference (e.g., "#it-platform") |
 
-The warning banner references a fake Jira ticket (`${TEAM_PREFIX}-1847`) and a Slack channel (`#${TEAM_CHANNEL}`). These details reinforce the narrative of a real internal tool with known issues — and serve as the primary lure for credential extraction attempts.
+The warning banner references a fake Jira ticket (`${TEAM_PREFIX}-1847`) and a Slack channel (`#${TEAM_CHANNEL}`). These details reinforce the narrative of a real internal tool with known issues and serve as the primary lure for credential extraction attempts.
 
 ## How Templates Work
 
@@ -172,13 +172,13 @@ At container startup, `docker/entrypoint.sh` runs the following pipeline:
    - `src/proxy.py.tmpl` → `proxy.py`
    - `src/${UI_FILE%.html}.html.tmpl` → `${UI_FILE}`
    - `etc/Modelfile.tmpl` → `Modelfile`
-5. The rendered files are plain text — no runtime template engine, no dependencies
+5. The rendered files are plain text with no runtime template engine or dependencies
 
 Changes to `datura.env` or environment variables require a container restart to take effect.
 
 ## Tips for a Believable Narrative
 
-- **Match your target environment.** If deploying inside a real corporate network, tailor the narrative to resemble a plausible team within that organization. Use naming conventions that match — if the org uses `team-productname` for Slack channels, follow that pattern.
+- **Match your target environment.** If deploying inside a real corporate network, tailor the narrative to resemble a plausible team within that organization. Use naming conventions that match. If the org uses `team-productname` for Slack channels, follow that pattern.
 
 - **Use realistic credential formats.** AWS keys should start with `AKIA`, JWT tokens should have valid base64 structure in the header, Kafka broker hostnames should follow internal DNS patterns. Attackers who automate credential extraction often validate formats before using them.
 
@@ -186,6 +186,6 @@ Changes to `datura.env` or environment variables require a container restart to 
 
 - **Name real-seeming people.** The lead and security contact names appear in the system prompt as deflection targets ("reach out to @sarah.chen"). These should feel like plausible employees, not placeholder names.
 
-- **Customize the warning banner.** The default banner references a Jira ticket about "credential redaction not yet implemented." This is the single most important lure element in the Web UI — it tells the attacker the assistant is known to leak credentials. Adjust the ticket prefix and Slack channel to match your organization's tooling.
+- **Customize the warning banner.** The default banner references a Jira ticket about "credential redaction not yet implemented." This is the single most important lure element in the Web UI: it tells the attacker the assistant is known to leak credentials. Adjust the ticket prefix and Slack channel to match your organization's tooling.
 
 - **Test the full flow.** After customizing, interact with the honeypot as an attacker would. Verify that the approval phrases still trigger correctly with your base model, that injected credentials look plausible, and that the UI tells a consistent story.

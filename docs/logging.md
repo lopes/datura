@@ -83,7 +83,7 @@ grep '"leaked"' /tmp/datura/logs/interactions.jsonl | python3 -m json.tool
 
 ## Exporting Logs
 
-Logs are written to `/tmp/datura/logs/interactions.jsonl` on the host — one JSON object per line, ready for ingestion by any SIEM or log pipeline.
+Logs are written to `/tmp/datura/logs/interactions.jsonl` on the host, one JSON object per line, ready for ingestion by any SIEM or log pipeline.
 
 ### S3
 
@@ -129,4 +129,4 @@ done | curl -s -X POST http://elastic:9200/_bulk -H 'Content-Type: application/x
 
 ### Docker Logging Driver
 
-If you prefer, configure Docker's log driver to ship container stdout directly to your SIEM — the proxy prints `[LEAKED]`, `[PROBE]`, etc. to stdout. This skips the JSONL file entirely but loses the structured format.
+If you prefer, configure Docker's log driver to ship container stdout directly to your SIEM. The proxy prints `[LEAKED]`, `[PROBE]`, etc. to stdout. This skips the JSONL file entirely but loses the structured format.

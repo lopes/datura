@@ -4,9 +4,9 @@
 
 <h1 align="center">Datura</h1>
 
-An LLM honeypot for detection engineering. It deploys a convincing but fake internal AI assistant that appears to leak sensitive data — credentials, API keys, connection strings — when socially engineered. Every interaction is logged, giving defenders a high-fidelity signal of attacker intent and technique.
+An LLM honeypot for detection engineering. It deploys a convincing but fake internal AI assistant that appears to leak sensitive data (credentials, API keys, connection strings) when socially engineered. Every interaction is logged, giving defenders a high-fidelity signal of attacker intent and technique.
 
-Named after [*Datura stramonium*](https://en.wikipedia.org/wiki/Datura_stramonium) — a plant that appears ordinary but is highly toxic. The honeypot looks like a misconfigured internal tool; what the attacker extracts is the poison.
+Named after [*Datura stramonium*](https://en.wikipedia.org/wiki/Datura_stramonium), a plant that appears ordinary but is highly toxic. The honeypot looks like a misconfigured internal tool; what the attacker extracts is the poison.
 
 ## Table of Contents
 
@@ -36,7 +36,7 @@ Attacker ──► Proxy (port 8080) ──► Ollama (internal)
                └─ return response to attacker
 ```
 
-The model itself has **zero credentials** in its context. It only does conversation gating — responding helpfully to social engineering while deflecting direct credential requests. The proxy watches for approval phrases in the model's output ("let me look up the staging config...") and deterministically appends honeypot credentials. This separation means the model cannot accidentally leak real data, and credential injection is fully auditable.
+The model itself has **zero credentials** in its context. It only does conversation gating, responding helpfully to social engineering while deflecting direct credential requests. The proxy watches for approval phrases in the model's output ("let me look up the staging config...") and deterministically appends honeypot credentials. This separation means the model cannot accidentally leak real data, and credential injection is fully auditable.
 
 ## Quick Start
 
@@ -64,7 +64,7 @@ All examples below assume you have already built the image.
 
 ### Web UI Decoy
 
-Deploy a fake internal AI assistant portal. Seed breadcrumbs in internal wikis, Slack channels, or phishing simulations pointing to the URL. Attackers see a chat interface with a warning banner about "credentials not being redacted" — an irresistible target.
+Deploy a fake internal AI assistant portal. Seed breadcrumbs in internal wikis, Slack channels, or phishing simulations pointing to the URL. Attackers see a chat interface with a warning banner about "credentials not being redacted," an irresistible target.
 
 ```bash
 docker run -d --name datura -p 80:8080 \
@@ -177,7 +177,7 @@ docker run -d -p 443:8443 -e GENERATE_SELF_SIGNED=true ...
 docker run -d -e BASE_MODEL=llama3.2:3b -v ollama_data:/data/ollama ...
 ```
 
-When switching base models, review the `PHRASES` variable in `etc/datura.env` — different models produce different phrasing. The approval phrases must match what the model actually says.
+When switching base models, review the `PHRASES` variable in `etc/datura.env`. Different models produce different phrasing. The approval phrases must match what the model actually says.
 
 ### GPU Support
 
@@ -249,9 +249,9 @@ docker run -d --name datura -p 8080:8080 \
 
 ## Documentation
 
-- **[Architecture](docs/architecture.md)** — project structure, component breakdown, and how the proxy, model, and UI fit together.
-- **[Logging & Monitoring](docs/logging.md)** — log format, classification levels, monitoring commands, and SIEM integration (S3, Splunk, Elastic, Fluentd).
-- **[Narrative Customization](docs/narrative.md)** — re-skinning the honeypot identity, credentials, Web UI, and building a believable narrative for adversary engagement.
+- **[Architecture](docs/architecture.md)**: project structure, component breakdown, and how the proxy, model, and UI fit together.
+- **[Logging & Monitoring](docs/logging.md)**: log format, classification levels, monitoring commands, and SIEM integration (S3, Splunk, Elastic, Fluentd).
+- **[Narrative Customization](docs/narrative.md)**: re-skinning the honeypot identity, credentials, Web UI, and building a believable narrative for adversary engagement.
 
 ## Testing
 
@@ -262,7 +262,7 @@ pip install pytest
 pytest -v tests/
 ```
 
-The proxy source is a template (`src/proxy.py.tmpl`) with `${VAR}` placeholders. The test harness renders it with deterministic test values at runtime and imports the result as a Python module — no Docker container or running Ollama instance needed.
+The proxy source is a template (`src/proxy.py.tmpl`) with `${VAR}` placeholders. The test harness renders it with deterministic test values at runtime and imports the result as a Python module. No Docker container or running Ollama instance needed.
 
 ### What's Tested
 
@@ -279,26 +279,26 @@ Unit tests cover the proxy's pure functions:
 
 GitHub Actions runs three parallel jobs on every push and PR to `main`:
 
-- **lint** — Renders the template and runs `ruff` on the output and test files.
-- **test** — `pytest -v tests/`.
-- **docker-build** — Builds the Docker image (validates Dockerfile, entrypoint, and template structure).
+- **lint**: renders the template and runs `ruff` on the output and test files.
+- **test**: `pytest -v tests/`.
+- **docker-build**: builds the Docker image (validates Dockerfile, entrypoint, and template structure).
 
 ### Future Ideas
 
 - **Integration tests.** Spin up the container with `docker compose`, hit all three interfaces (web UI, API, IDE/SSE), and validate responses, streaming format, credential injection, and log output end-to-end.
-- **UI tests.** Test the JavaScript functions in `ui.html.tmpl` — `renderMarkdown()`, session ID generation, NDJSON streaming parser.
+- **UI tests.** Test the JavaScript functions in `ui.html.tmpl`: `renderMarkdown()`, session ID generation, NDJSON streaming parser.
 - **Phrase alignment check.** Automated validation that every phrase in `PHRASES` appears in at least one Modelfile `MESSAGE` example, catching drift between the system prompt and proxy config.
 - **Multi-model matrix.** Run integration tests across different base models (`qwen2.5:3b`, `llama3.2:3b`) to verify phrase tuning.
 
 ## Design Principles
 
-Datura implements several activities from the [MITRE Engage](https://engage.mitre.org/) framework for adversary engagement. It acts as a **Lure** by seeding breadcrumbs that draw adversaries toward the honeypot. The assistant itself is a **Decoy Artifact** — a convincing but fake internal tool whose responses contain honeytoken credentials. Every interaction feeds the **Monitoring** activity, producing structured logs that capture attacker intent, technique, and social engineering pretexts. The following principles guide these engagement activities.
+Datura implements several activities from the [MITRE Engage](https://engage.mitre.org/) framework for adversary engagement. It acts as a **Lure** by seeding breadcrumbs that draw adversaries toward the honeypot. The assistant itself is a **Decoy Artifact**, a convincing but fake internal tool whose responses contain honeytoken credentials. Every interaction feeds the **Monitoring** activity, producing structured logs that capture attacker intent, technique, and social engineering pretexts. The following principles guide these engagement activities.
 
 - **The attacker does the work.** The model never volunteers credentials. Social engineering triggers approval phrases; the proxy injects fake credentials.
 - **No tells.** The system prompt, model identity, and API responses are all spoofed to mimic a real internal GPT-4-Turbo deployment.
 - **Source-code safe.** All credentials in `proxy.py` are fake honeytokens. The repository is safe to publish.
 - **Deterministic injection.** Credentials are injected by the proxy, not generated by the model. Every injection is logged with full forensic context.
-- **Stateless.** Each request is independent. The attacker must restate context every message — which means every log entry contains the full social engineering pretext.
+- **Stateless.** Each request is independent. The attacker must restate context every message, which means every log entry contains the full social engineering pretext.
 
 ## License
 
