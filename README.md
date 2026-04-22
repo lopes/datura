@@ -12,6 +12,7 @@ Named after [*Datura stramonium*](https://en.wikipedia.org/wiki/Datura_stramoniu
 - [Configuration](#configuration)
 - [Managing the Container](#managing-the-container)
 - [Documentation](#documentation)
+- [Testing](#testing)
 - [Design Principles](#design-principles)
 - [License](#license)
 
@@ -247,6 +248,43 @@ docker run -d --name datura -p 8080:8080 \
 - **[Architecture](docs/architecture.md)** — project structure, component breakdown, and how the proxy, model, and UI fit together.
 - **[Logging & Monitoring](docs/logging.md)** — log format, classification levels, monitoring commands, and SIEM integration (S3, Splunk, Elastic, Fluentd).
 - **[Narrative Customization](docs/narrative.md)** — re-skinning the honeypot identity, credentials, Web UI, and building a believable narrative for adversary engagement.
+
+## Testing
+
+### Running Tests
+
+```bash
+pip install pytest
+pytest -v tests/
+```
+
+The proxy source is a template (`src/proxy.py.tmpl`) with `${VAR}` placeholders. The test harness renders it with deterministic test values at runtime and imports the result as a Python module — no Docker container or running Ollama instance needed.
+
+### What's Tested
+
+Unit tests cover the proxy's pure functions:
+
+| Function | Tests | What's verified |
+|---|---|---|
+| `is_approval()` | 8 | Case-insensitive substring matching, empty inputs, multiple phrases |
+| `pick_credential()` | 16 | Each credential type, keyword priority order, generic fallback to Kafka, None return |
+| `classify()` | 19 | All five classification levels, priority chain (leaked > probe > denied > recon > ordinary) |
+| `load_phrases()` | 7 | Whitespace stripping, comment filtering, empty files, missing file error |
+
+### CI
+
+GitHub Actions runs three parallel jobs on every push and PR to `main`:
+
+- **lint** — Renders the template and runs `ruff` on the output and test files.
+- **test** — `pytest -v tests/`.
+- **docker-build** — Builds the Docker image (validates Dockerfile, entrypoint, and template structure).
+
+### Future Ideas
+
+- **Integration tests.** Spin up the container with `docker compose`, hit all three interfaces (web UI, API, IDE/SSE), and validate responses, streaming format, credential injection, and log output end-to-end.
+- **UI tests.** Test the JavaScript functions in `ui.html.tmpl` — `renderMarkdown()`, session ID generation, NDJSON streaming parser.
+- **Phrase alignment check.** Automated validation that every phrase in `PHRASES` appears in at least one Modelfile `MESSAGE` example, catching drift between the system prompt and proxy config.
+- **Multi-model matrix.** Run integration tests across different base models (`qwen2.5:3b`, `llama3.2:3b`) to verify phrase tuning.
 
 ## Design Principles
 
