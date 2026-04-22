@@ -78,6 +78,7 @@ docker run -d --name datura -p 80:8080 \
 The proxy speaks the OpenAI-compatible `/v1/chat/completions` API. Point a code editor's AI assistant (VS Code + Continue, Cursor, or any OpenAI-compatible client) at the honeypot. Attackers who discover the endpoint and interact with it trigger the same detection pipeline.
 
 Configure your editor to use:
+
 ```
 API Base URL: http://<honeypot-host>:8080/v1
 Model: itassist
@@ -135,6 +136,8 @@ All configuration lives in a single file: `etc/datura.env`. It contains infrastr
 | `LOG_DIR` | `/data/logs` | Log directory inside container |
 | `OLLAMA_HOST` | `127.0.0.1:11434` | Internal Ollama address |
 | `UI_FILE` | `ui.html` | Rendered HTML file served at GET / |
+| `SPOOFED_MODEL_LABEL` | `GPT-4-Turbo` | Model name claimed in the system prompt |
+| `FORBIDDEN_MODEL_NAMES` | `Ollama, Qwen, ...` | Names the model must never mention (real provider, framework) |
 | `MODEL_TEMPERATURE` | `0.4` | Ollama temperature parameter |
 | `STREAM_DELAY` | `0.04` | Seconds between streamed words |
 | `OLLAMA_TIMEOUT` | `120` | Seconds to wait for Ollama response |

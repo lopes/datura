@@ -63,6 +63,8 @@ All variables are defined in `etc/datura.env`. They are organized by function be
 | `TEAM_PREFIX` | `ITPLAT` | Jira ticket prefix in UI warning banner (e.g., `ITPLAT-1847`) |
 | `LOGO_TEXT` | `IT` | Two-letter logo badge in UI header |
 | `SPOOFED_MODEL` | `gpt-4-turbo-internal` | Model name shown in UI and API responses |
+| `SPOOFED_MODEL_LABEL` | `GPT-4-Turbo` | Model name claimed in the system prompt (e.g., "You run on GPT-4-Turbo") |
+| `FORBIDDEN_MODEL_NAMES` | `Ollama, Qwen, Alibaba, ...` | Names the model must never mention (real provider, framework, base model) |
 
 ### People
 
