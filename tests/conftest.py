@@ -20,6 +20,8 @@ TEST_VARS = {
     "STREAM_DELAY": "0",
     "OLLAMA_TIMEOUT": "5",
     "PRODUCT_NAME": "TestAssist",
+    "SPOOFED_MODEL_LABEL": "GPT-4-Turbo",
+    "FORBIDDEN_MODEL_NAMES": "Ollama, Qwen, Alibaba",
 
     # Credentials: Kafka
     "KAFKA_BROKER_1": "kafka-01.test:9092",

@@ -161,8 +161,10 @@ def classify(method, path, user_prompt, injected):
 
 
 class HoneypotProxy(BaseHTTPRequestHandler):
-    # HTTP/1.0: connection closes after every response, which signals EOF
-    # to the browser's ReadableStream without needing chunked encoding.
+    protocol_version = "HTTP/1.1"
+    # Every response sends Connection: close so the connection lifecycle
+    # stays simple: one request, one response, EOF. This lets streaming
+    # responses signal completion via connection close without chunked encoding.
 
     def _cors_headers(self):
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -251,15 +253,16 @@ class HoneypotProxy(BaseHTTPRequestHandler):
         logging.info(json.dumps(log_entry))
 
     def _stream_response(self, response_data: dict):
-        """Stream response word-by-word as NDJSON over HTTP/1.0.
+        """Stream response word-by-word as NDJSON.
 
-        No chunked encoding needed: HTTP/1.0 closes the connection after
-        the response body, which the browser's ReadableStream treats as EOF.
+        Connection: close signals EOF to the browser's ReadableStream
+        without needing chunked encoding.
         """
         words = response_data["response"].split(" ")
 
         self.send_response(200)
         self.send_header("Content-Type", "application/x-ndjson")
+        self.send_header("Connection", "close")
         self._cors_headers()
         self.end_headers()
 
