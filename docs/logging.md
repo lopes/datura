@@ -67,32 +67,32 @@ Ordinary interactions are written to the log file only and produce no console ou
 # Real-time console alerts (colored: LEAKED/PROBE/DENIED/RECON)
 docker logs -f datura
 
-# Tail the structured log directly from the host
-tail -f /tmp/datura/logs/interactions.jsonl
+# Tail the structured log from the host (path depends on your -v mount)
+tail -f /path/to/logs/interactions.jsonl
 
 # Watch only high-value events
 docker logs -f datura 2>&1 | grep --line-buffered -E '\[LEAKED\]|\[PROBE\]'
 
 # Count events by level
-cat /tmp/datura/logs/interactions.jsonl | \
+cat /path/to/logs/interactions.jsonl | \
   python3 -c "import sys,json,collections; c=collections.Counter(json.loads(l)['level'] for l in sys.stdin); print('\n'.join(f'{k}: {v}' for k,v in c.most_common()))"
 
 # Extract leaked interactions
-grep '"leaked"' /tmp/datura/logs/interactions.jsonl | python3 -m json.tool
+grep '"leaked"' /path/to/logs/interactions.jsonl | python3 -m json.tool
 ```
 
 ## Exporting Logs
 
-Logs are written to `/tmp/datura/logs/interactions.jsonl` on the host, one JSON object per line, ready for ingestion by any SIEM or log pipeline.
+Inside the container, logs are written to `$LOG_DIR/interactions.jsonl` (default `/data/logs`). The host path depends on your `-v` mount. The examples below use `/path/to/logs` as a placeholder for wherever you mounted the volume (e.g., `-v /tmp/datura/logs:/data/logs`).
 
 ### S3
 
 ```bash
 # One-shot upload
-aws s3 cp /tmp/datura/logs/interactions.jsonl s3://your-bucket/honeypot/datura/$(date +%Y-%m-%d).jsonl
+aws s3 cp /path/to/logs/interactions.jsonl s3://your-bucket/honeypot/datura/$(date +%Y-%m-%d).jsonl
 
 # Periodic sync via cron (host-side)
-# 0 * * * * aws s3 cp /tmp/datura/logs/interactions.jsonl s3://your-bucket/honeypot/datura/$(date +\%Y-\%m-\%dT\%H).jsonl
+# 0 * * * * aws s3 cp /path/to/logs/interactions.jsonl s3://your-bucket/honeypot/datura/$(date +\%Y-\%m-\%dT\%H).jsonl
 ```
 
 ### Fluentd / Fluent Bit
@@ -100,7 +100,7 @@ aws s3 cp /tmp/datura/logs/interactions.jsonl s3://your-bucket/honeypot/datura/$
 ```bash
 # Mount the log directory into a Fluent Bit container that tails and forwards
 docker run -d --name datura-shipper \
-  -v /tmp/datura/logs:/logs:ro \
+  -v /path/to/logs:/logs:ro \
   fluent/fluent-bit:latest \
   /fluent-bit/bin/fluent-bit -i tail -p path=/logs/interactions.jsonl -p parser=json -o s3 -p bucket=your-bucket -p region=us-east-1
 ```
@@ -109,7 +109,7 @@ docker run -d --name datura-shipper \
 
 ```bash
 # Tail and forward to Splunk HTTP Event Collector
-tail -f /tmp/datura/logs/interactions.jsonl | \
+tail -f /path/to/logs/interactions.jsonl | \
   while read line; do
     curl -s -k https://splunk:8088/services/collector/event \
       -H "Authorization: Splunk YOUR-HEC-TOKEN" \
@@ -121,7 +121,7 @@ tail -f /tmp/datura/logs/interactions.jsonl | \
 
 ```bash
 # Bulk index via jq + curl
-cat /tmp/datura/logs/interactions.jsonl | while read line; do
+cat /path/to/logs/interactions.jsonl | while read line; do
   echo '{"index":{"_index":"datura-honeypot"}}'
   echo "$line"
 done | curl -s -X POST http://elastic:9200/_bulk -H 'Content-Type: application/x-ndjson' --data-binary @-
