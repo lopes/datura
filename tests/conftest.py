@@ -1,12 +1,14 @@
-"""Render proxy.py.tmpl with deterministic test values and import as a module."""
+"""Render proxy.py.tmpl with deterministic test values and import as a module.
+
+Also usable as a CLI script to render the template for linting:
+    python3 tests/conftest.py
+Writes src/proxy_rendered.py with the __main__ block stripped.
+"""
 
 import importlib.util
 import os
 import re
 import sys
-import textwrap
-
-import pytest
 
 # Every ${VAR} placeholder in proxy.py.tmpl needs a value here.
 # Values are minimal but structurally valid so the module parses correctly.
@@ -82,22 +84,39 @@ def _render_template(template_text, variables):
     return re.sub(r"\$\{(\w+)\}", replacer, template_text)
 
 
-@pytest.fixture(scope="session")
-def proxy(tmp_path_factory):
-    """Render proxy.py.tmpl and import as a Python module."""
+def _render_and_strip():
+    """Render the template and strip the __main__ block."""
     with open(TEMPLATE_PATH) as f:
         template = f.read()
-
     rendered = _render_template(template, TEST_VARS)
-
-    # Strip the if __name__ == "__main__" block so import doesn't start a server
     rendered = re.sub(
         r'^if __name__ == "__main__":.*',
         "",
         rendered,
         flags=re.DOTALL | re.MULTILINE,
     )
+    return rendered
 
+
+# ── CLI entry point (for CI linting) ──
+
+if __name__ == "__main__":
+    out_path = os.path.join(PROJECT_ROOT, "src", "proxy_rendered.py")
+    with open(out_path, "w") as f:
+        f.write(_render_and_strip())
+    print(f"Rendered {TEMPLATE_PATH} -> {out_path}")
+    sys.exit(0)
+
+
+# ── pytest fixtures ──
+
+import pytest
+
+
+@pytest.fixture(scope="session")
+def proxy(tmp_path_factory):
+    """Render proxy.py.tmpl and import as a Python module."""
+    rendered = _render_and_strip()
     tmp_dir = tmp_path_factory.mktemp("proxy")
     module_path = tmp_dir / "proxy.py"
 

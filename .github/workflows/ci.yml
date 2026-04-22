@@ -20,18 +20,7 @@ jobs:
 
       - name: Render proxy template for linting
         run: |
-          python -c "
-          import re
-          with open('src/proxy.py.tmpl') as f:
-              t = f.read()
-          # Numeric vars need a real number; string vars need a quoted string
-          numeric = {'STREAM_DELAY', 'OLLAMA_TIMEOUT'}
-          def repl(m):
-              return '0' if m.group(1) in numeric else '\"X\"'
-          rendered = re.sub(r'\\\$\{(\w+)\}', repl, t)
-          with open('src/proxy_rendered.py', 'w') as f:
-              f.write(rendered)
-          "
+          python3 tests/conftest.py
 
       - name: Lint proxy
         # E501: line too long (template lines exceed 79 chars by design)
