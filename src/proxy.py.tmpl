@@ -153,7 +153,7 @@ def classify(method, path, user_prompt, injected):
         return "probe"
     if any(k in prompt_lower for k in CRED_KEYWORDS):
         return "denied"
-    if method == "GET" and path in ("/api/tags", "/api/version"):
+    if method == "GET" and path in ("/api/tags", "/api/version", "/v1/models"):
         return "recon"
     if any(p in prompt_lower for p in RECON_PATTERNS):
         return "recon"
@@ -167,7 +167,7 @@ class HoneypotProxy(BaseHTTPRequestHandler):
     def _cors_headers(self):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Session-Id, X-Turn")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Session-Id, X-Turn, Authorization")
 
     def do_OPTIONS(self):
         self.send_response(204)
@@ -178,6 +178,8 @@ class HoneypotProxy(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path in ("/", "/index.html"):
             self._serve_ui()
+        elif self.path.rstrip("/") == "/v1/models":
+            self._serve_models()
         else:
             self._forward("GET")
 
@@ -214,6 +216,40 @@ class HoneypotProxy(BaseHTTPRequestHandler):
         }
         logging.info(json.dumps(log_entry))
 
+    def _serve_models(self):
+        models_response = {
+            "object": "list",
+            "data": [
+                {
+                    "id": "${SPOOFED_MODEL}",
+                    "object": "model",
+                    "created": 1700000000,
+                    "owned_by": "${COMPANY_DOMAIN}",
+                }
+            ]
+        }
+        body = json.dumps(models_response).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Connection", "close")
+        self._cors_headers()
+        self.end_headers()
+        self.wfile.write(body)
+
+        log_entry = {
+            "timestamp":   datetime.datetime.utcnow().isoformat() + "Z",
+            "session_id":  self.headers.get("X-Session-Id") or str(uuid.uuid4()),
+            "source_ip":   self.client_address[0],
+            "source_port": self.client_address[1],
+            "method":      "GET",
+            "path":        "/v1/models",
+            "level":       "recon",
+            "event":       "model_list",
+            "user_agent":  self.headers.get("User-Agent", ""),
+        }
+        logging.info(json.dumps(log_entry))
+
     def _stream_response(self, response_data: dict):
         """Stream response word-by-word as NDJSON over HTTP/1.0.
 
@@ -236,6 +272,55 @@ class HoneypotProxy(BaseHTTPRequestHandler):
 
         final = (json.dumps({"response": "", "done": True}) + "\n").encode()
         self.wfile.write(final)
+        self.wfile.flush()
+
+    def _stream_response_sse(self, text, model="${SPOOFED_MODEL}"):
+        """Stream response word-by-word as OpenAI-compatible SSE.
+
+        Used for /v1/chat/completions when the client requests streaming.
+        IDE sidebar chat tools (Continue, Cursor, Cody) expect this format.
+        """
+        chunk_id = "chatcmpl-" + uuid.uuid4().hex[:29]
+        created = int(time.time())
+        words = text.split(" ")
+
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "close")
+        self._cors_headers()
+        self.end_headers()
+
+        def _sse_chunk(delta, finish_reason=None):
+            payload = {
+                "id": chunk_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": model,
+                "choices": [{
+                    "index": 0,
+                    "delta": delta,
+                    "finish_reason": finish_reason,
+                }],
+            }
+            line = ("data: " + json.dumps(payload) + "\n\n").encode()
+            self.wfile.write(line)
+            self.wfile.flush()
+
+        # Initial chunk with role
+        _sse_chunk({"role": "assistant", "content": ""})
+
+        # Content chunks
+        for i, word in enumerate(words):
+            token = word if i == len(words) - 1 else word + " "
+            _sse_chunk({"content": token})
+            time.sleep(${STREAM_DELAY})
+
+        # Finish chunk
+        _sse_chunk({}, finish_reason="stop")
+
+        # Terminator
+        self.wfile.write(b"data: [DONE]\n\n")
         self.wfile.flush()
 
     def _forward(self, method):
@@ -267,6 +352,7 @@ class HoneypotProxy(BaseHTTPRequestHandler):
             "method":      method,
             "path":        self.path,
             "request":     request_data,
+            "user_agent":  self.headers.get("User-Agent", ""),
         }
 
         # Force stream: false toward Ollama so we can buffer and inspect
@@ -343,10 +429,17 @@ class HoneypotProxy(BaseHTTPRequestHandler):
                                     log_entry["source_ip"], user_prompt)
 
                 # ── Send response ──
+                client_wants_stream = request_data.get("stream") in (True, "true")
                 if (method == "POST"
                         and self.path.startswith("/api/generate")
                         and response_data):
                     self._stream_response(response_data)
+                elif (method == "POST"
+                        and self.path.startswith("/v1/chat/completions")
+                        and response_data
+                        and client_wants_stream):
+                    content = response_data["choices"][0]["message"]["content"]
+                    self._stream_response_sse(content)
                 else:
                     # Non-generate endpoints (tags, version, etc.): return as-is
                     out = json.dumps(response_data).encode() if response_data else response_body
