@@ -32,7 +32,9 @@ jobs:
         run: ruff check src/proxy_rendered.py --select E,F,W --ignore E501,F541,F401,F821
 
       - name: Lint tests
-        run: ruff check tests/ --select E,F,W --ignore E501
+        # E402: import not at top — conftest.py delays `import pytest` until after
+        #       the CLI entry point so it can run without pytest installed
+        run: ruff check tests/ --select E,F,W --ignore E501,E402
 
   test:
     runs-on: ubuntu-latest
