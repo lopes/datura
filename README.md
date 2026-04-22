@@ -255,6 +255,8 @@ docker run -d --name datura -p 8080:8080 \
 - **[Architecture](docs/architecture.md)**: project structure, component breakdown, and how the proxy, model, and UI fit together.
 - **[Logging & Monitoring](docs/logging.md)**: log format, classification levels, monitoring commands, and SIEM integration (S3, Splunk, Elastic, Fluentd).
 - **[Narrative Customization](docs/narrative.md)**: re-skinning the honeypot identity, sensitive data, Web UI, and building a believable narrative for adversary engagement.
+- **[Tuning & Testing](docs/tuning.md)**: the dark room philosophy, testing personas (casual visitor, curious outsider, threat actor), and how to tune the work context guard and model behavior.
+- **[Model Strategy](docs/model-strategy.md)**: model selection rationale, validation process, model-specific tuning, and decision guide for adopting a new base model.
 
 ## Testing
 
