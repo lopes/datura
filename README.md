@@ -129,7 +129,7 @@ docker run -d --name datura \
   -p 443:8443 \
   -e TLS_CERT=/certs/fullchain.pem \
   -e TLS_KEY=/certs/privkey.pem \
-  -v /path/to/certs:/certs:ro \
+  -v /path/to/certs:/certs \
   -v ollama_data:/data/ollama \
   datura
 ```
@@ -169,7 +169,7 @@ Mount a custom config file:
 
 ```bash
 docker run -d --name datura \
-  -v /path/to/my-datura.env:/app/datura.env:ro \
+  -v /path/to/my-datura.env:/app/datura.env \
   -p 8080:8080 -v ollama_data:/data/ollama datura
 ```
 
@@ -206,7 +206,7 @@ If your network uses a TLS-intercepting proxy (Zscaler, etc.), mount the corpora
 
 ```bash
 docker run -d --name datura -p 8080:8080 \
-  -v /path/to/corporate-ca.pem:/certs/custom-ca.pem:ro \
+  -v /path/to/corporate-ca.pem:/certs/custom-ca.pem \
   -e CUSTOM_CA_CERT=/certs/custom-ca.pem \
   -v ollama_data:/data/ollama \
   -v /tmp/datura/logs:/data/logs \

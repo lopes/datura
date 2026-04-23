@@ -14,14 +14,10 @@ services:
       - ollama_data:/data/ollama
       - datura_logs:/data/logs
       # Mount a custom config file:
-      # - /path/to/custom.env:/app/datura.env:ro
-      # Mount a custom UI template:
-      # - /path/to/custom.html.tmpl:/app/custom.html.tmpl:ro
-      # Mount a custom phrases file:
-      # - /path/to/phrases.txt:/app/custom-phrases.txt:ro
-      # Mount a corporate CA cert:
-      # - /path/to/corporate-ca.pem:/certs/custom-ca.pem:ro
-    environment: []
+      # - /path/to/custom.env:/app/datura.env      # Mount a custom UI template:
+      # - /path/to/custom.html.tmpl:/app/custom.html.tmpl      # Mount a custom phrases file:
+      # - /path/to/phrases.txt:/app/custom-phrases.txt      # Mount a corporate CA cert:
+      # - /path/to/corporate-ca.pem:/certs/custom-ca.pem    environment: []
       # Per-variable overrides (take precedence over datura.env):
       # - COMPANY_NAME=Globex Corp
       # - PRODUCT_NAME=GloBot

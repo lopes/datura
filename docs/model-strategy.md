@@ -62,7 +62,7 @@ PARAMETER repeat_penalty 1.15 # Prevents response loops
 PARAMETER num_predict 200     # Cap length — shorter responses stay on-script, use less compute
 ```
 
-**Why `temperature 0.4`:** The approval phrase trigger is substring-matched. Higher temperatures increase response variability, which reduces the probability of hitting one of the 23 phrases in the right context. Lower temperature trades off naturalness for reliability.
+**Why `temperature 0.4`:** The approval phrase trigger is substring-matched. Higher temperatures increase response variability, which reduces the probability of hitting one of the 11 phrases in the right context. Lower temperature trades off naturalness for reliability.
 
 **Why `num_ctx 2048`:** Each request to `/api/generate` is independent — no conversation history is sent. The context only contains the system prompt + few-shot examples + the current user message. 2048 tokens is well above what's needed and halves the KV-cache memory footprint compared to 4096.
 

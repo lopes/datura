@@ -37,7 +37,7 @@ All configuration lives in a single file: `etc/datura.env`. To customize, either
 
 ```bash
 docker run -d --name datura \
-  -v /path/to/my-datura.env:/app/datura.env:ro \
+  -v /path/to/my-datura.env:/app/datura.env \
   -p 8080:8080 \
   -v ollama_data:/data/ollama \
   datura
@@ -128,8 +128,8 @@ Datura ships with a default web UI (`src/ui.html.tmpl`) styled as an internal co
 
 ```bash
 docker run -d --name datura \
-  -v /path/to/my-datura.env:/app/datura.env:ro \
-  -v /path/to/custom.html.tmpl:/app/custom.html.tmpl:ro \
+  -v /path/to/my-datura.env:/app/datura.env \
+  -v /path/to/custom.html.tmpl:/app/custom.html.tmpl \
   -p 8080:8080 \
   -v ollama_data:/data/ollama \
   datura
@@ -138,6 +138,8 @@ docker run -d --name datura \
 The default UI uses identity variables from `datura.env` (see Identity table above) for the header, footer, warning banner, and welcome message. The quickstart chips are static labels that hint at what the assistant can help with but do not auto-fill the input–update them to match your composite blocks when building a custom UI.
 
 The warning banner references a fake Jira ticket (`${TEAM_PREFIX}-1847`) and a Slack channel (`#${TEAM_CHANNEL}`). This is the single most important lure element: it tells the attacker the assistant is known to leak sensitive data.
+
+**`envsubst` and bare `$` patterns.** The entrypoint runs `envsubst` with an explicit variable list, so only declared `${VAR}` placeholders are substituted. Bare dollar-sign patterns like JavaScript regex backreferences (`$1`, `$2`) are left untouched. If you add a new `${VAR}` placeholder to a custom UI template, register it in the `_ui_vars` list in `docker/entrypoint.sh` so `envsubst` picks it up.
 
 ## Tips for a Believable Narrative
 

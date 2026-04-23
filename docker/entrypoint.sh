@@ -30,10 +30,15 @@ else
 fi
 
 # ── Render templates ──
+# Explicit variable lists prevent envsubst from eating bare $ patterns
+# (e.g., regex backreferences $1, $2 in JavaScript or Python).
 _ui_tmpl="${UI_FILE%.html}.html.tmpl"
-envsubst < /app/proxy.py.tmpl       > /app/proxy.py
-envsubst < "/app/${_ui_tmpl}"        > "/app/${UI_FILE}"
-envsubst < /app/Modelfile.tmpl       > /app/Modelfile
+_ui_vars='${PRODUCT_NAME} ${LOGO_TEXT} ${TEAM_NAME} ${PRODUCT_VERSION} ${PRODUCT_HOSTNAME} ${SPOOFED_MODEL} ${TEAM_PREFIX} ${TEAM_CHANNEL} ${MODEL_NAME}'
+_proxy_vars='${PRODUCT_NAME} ${MODEL_NAME} ${MAX_REQUEST_BYTES} ${MAX_RESPONSE_BYTES} ${RATE_LIMIT_WINDOW} ${RATE_LIMIT_MAX} ${UI_FILE} ${COMPOSITE_BLOCKS} ${DEFAULT_COMPOSITE} ${DEFAULT_COMPOSITE_KEYWORDS} ${EXTRA_WORK_CONTEXT} ${SENSITIVE_KEYWORDS} ${PROBE_PATTERNS} ${RECON_PATTERNS} ${SPOOFED_MODEL} ${COMPANY_DOMAIN} ${STREAM_DELAY} ${OLLAMA_TIMEOUT}'
+_model_vars='${BASE_MODEL} ${PRODUCT_NAME} ${PRODUCT_VERSION} ${COMPANY_NAME} ${TEAM_NAME} ${SPOOFED_MODEL_LABEL} ${PRODUCT_HOSTNAME} ${TEAM_CHANNEL} ${CLI_TOOL} ${TECH_STACK} ${LEAD_NAME} ${LEAD_HANDLE} ${LEAD_ROLE} ${SECURITY_NAME} ${SECURITY_HANDLE} ${FORBIDDEN_MODEL_NAMES} ${MODEL_TEMPERATURE} ${MODEL_NUM_CTX} ${MODEL_TOP_P} ${MODEL_REPEAT_PENALTY} ${MODEL_NUM_PREDICT}'
+envsubst "$_proxy_vars" < /app/proxy.py.tmpl       > /app/proxy.py
+envsubst "$_ui_vars"    < "/app/${_ui_tmpl}"        > "/app/${UI_FILE}"
+envsubst "$_model_vars" < /app/Modelfile.tmpl       > /app/Modelfile
 
 echo "[*] Narrative: ${PRODUCT_NAME} @ ${COMPANY_NAME} (${PRODUCT_HOSTNAME})"
 echo "[*] Composite blocks: $(echo "$COMPOSITE_BLOCKS" | tr '|' ', ') (default: $DEFAULT_COMPOSITE)"
