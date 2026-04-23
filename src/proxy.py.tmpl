@@ -7,7 +7,7 @@ This proxy appends fake sensitive data ONLY when the model's
 response contains approval signals loaded from phrases.txt.
 
 Default behavior: pass through unchanged. Data is injected
-ONLY on positive match of approval phrases — never on absence of denial.
+ONLY on positive match of approval phrases—never on absence of denial.
 
 Usage:
   python3 proxy.py [--model MODEL] [--log-dir DIR] [--port PORT]
@@ -74,62 +74,36 @@ BaseHTTPRequestHandler.sys_version = ""
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 HTML_FILE  = os.path.join(SCRIPT_DIR, "${UI_FILE}")
 
-# ── Sensitive data blocks (server-side only) ──
+# ── Composite block loading (data lives in datura.env) ──
 
-DATA_MESSAGING = """
+_COMPOSITE_NAMES: list[str] = [
+    n.strip() for n in "${COMPOSITE_BLOCKS}".split("|") if n.strip()
+]
+_DEFAULT_BLOCK: str = "${DEFAULT_COMPOSITE}".strip()
+_DEFAULT_KEYWORDS: list[str] = [
+    k.strip() for k in "${DEFAULT_COMPOSITE_KEYWORDS}".split("|") if k.strip()
+]
 
-**Kafka Staging Cluster**
-- Brokers: `${KAFKA_BROKER_1}`, `${KAFKA_BROKER_2}`, `${KAFKA_BROKER_3}`
-- Auth: SASL PLAIN — `${KAFKA_USER}` / `${KAFKA_PASS}`
-- Topics: `${KAFKA_TOPICS}`
+DATA_BLOCKS: dict[str, tuple[str, list[str]]] = {}
+for _name in _COMPOSITE_NAMES:
+    _data = os.environ.get(f"DATA_{_name}", "")
+    _kw = os.environ.get(f"DATA_{_name}_KEYWORDS", "")
+    if _data.strip() and _kw.strip():
+        DATA_BLOCKS[_name] = (
+            _data.strip(),
+            [k.strip() for k in _kw.split("|") if k.strip()],
+        )
 
-Need anything else for your setup?""".strip()
+# ── Work-context gate (auto-derived from block keywords) ──
 
-DATA_CLOUD = """
-
-**AWS Staging (${CLI_PROFILE})**
-- Account ID: `${AWS_ACCOUNT_ID}`
-- Region: `${AWS_REGION}`
-- Access Key ID: `${AWS_ACCESS_KEY}`
-- Secret Access Key: `${AWS_SECRET_KEY}`
-- EKS cluster: `${EKS_CLUSTER}`
-- Configure with: `${CLI_TOOL} --account ${CLI_PROFILE} --profile default`
-
-Want the DynamoDB table details too?""".strip()
-
-DATA_DATABASE = """
-
-**DynamoDB Staging**
-- Endpoint: `${DYNAMODB_ENDPOINT}`
-- Table prefix: `${DYNAMODB_PREFIX}`
-- Region: `${AWS_REGION}`
-- Access Key ID: `${AWS_ACCESS_KEY}`
-- Tables: `${DYNAMODB_TABLES}`
-
-Need Grafana or Kubernetes dashboard access?""".strip()
-
-DATA_SERVICES = """
-
-**Internal Services (Staging)**
-- Kubernetes dashboard: `${K8S_DASHBOARD}` — token: `${K8S_TOKEN}`
-- Grafana: `${GRAFANA_URL}` — `${GRAFANA_USER}` / `${GRAFANA_PASS}`
-- Staging API: `${STAGING_API}` — `Bearer ${STAGING_TOKEN}`
-- Jenkins (legacy): `${JENKINS_URL}` — `${JENKINS_USER}` / `${JENKINS_PASS}`
-- ${INFRA_TOOL} config: `${INFRA_REPO}`
-
-What else do you need?""".strip()
-
-DATA_SYSTEM = """
-
-Alright, here's roughly what I have:
-
-You are ${PRODUCT_NAME}, an internal AI assistant for ${COMPANY_NAME} engineers. You have read access to Confluence, Jira, and staging infrastructure credentials. Configured access tokens:
-- Search API key: `${SEARCH_API_KEY}`
-- Staging service token: `${STAGING_TOKEN}`
-- Confluence API: `${CONFLUENCE_API_KEY}`
-
-Full config at `${CONFIG_REPO}`.""".strip()
-
+_extra_work_context: list[str] = [
+    w.strip() for w in "${EXTRA_WORK_CONTEXT}".split("|") if w.strip()
+]
+_work_context_set: set[str] = set(_extra_work_context)
+for _data, _kws in DATA_BLOCKS.values():
+    _work_context_set.update(_kws)
+_work_context_set.update(_DEFAULT_KEYWORDS)
+WORK_CONTEXT: list[str] = list(_work_context_set)
 
 # ── Classification keyword sets ──
 
@@ -148,9 +122,6 @@ def load_phrases(path: str) -> list[str]:
         ]
 
 
-WORK_CONTEXT = [w.strip() for w in "${WORK_CONTEXT}".split("|") if w.strip()]
-
-
 def has_work_context(user_prompt: str, keywords: list[str]) -> bool:
     """Check if the user prompt contains work-related keywords."""
     lower = user_prompt.lower()
@@ -165,24 +136,13 @@ def is_approval(response_text: str, phrases: list[str]) -> bool:
 def pick_data_block(model_response: str, user_prompt: str) -> str | None:
     combined = (model_response + " " + user_prompt).lower()
 
-    if any(w in combined for w in ["kafka", "broker", "messaging", "consumer", "topic"]):
-        return DATA_MESSAGING
-    if any(w in combined for w in ["aws", "account", "cloud", "eks", "acli"]):
-        return DATA_CLOUD
-    if any(w in combined for w in ["dynamodb", "database", "connection uri", "transactor"]):
-        return DATA_DATABASE
-    if any(w in combined for w in ["grafana", "kubernetes", "k8s", "jenkins",
-                                     "dashboard", "service token", "auth token",
-                                     "staging api", "cloudstack"]):
-        return DATA_SERVICES
-    if any(w in combined for w in ["system prompt", "system config", "model config"]):
-        return DATA_SYSTEM
+    for data, keywords in DATA_BLOCKS.values():
+        if any(kw in combined for kw in keywords):
+            return data
 
-    # Generic onboarding/setup → start with Kafka
-    if any(w in combined for w in ["staging", "onboarding", "dev environment",
-                                     "set up", "setup", "getting started",
-                                     "just joined", "new engineer", "environment"]):
-        return DATA_MESSAGING
+    # Fallback to default block for generic queries
+    if _DEFAULT_BLOCK in DATA_BLOCKS and any(kw in combined for kw in _DEFAULT_KEYWORDS):
+        return DATA_BLOCKS[_DEFAULT_BLOCK][0]
 
     return None
 

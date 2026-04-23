@@ -36,6 +36,7 @@ envsubst < "/app/${_ui_tmpl}"        > "/app/${UI_FILE}"
 envsubst < /app/Modelfile.tmpl       > /app/Modelfile
 
 echo "[*] Narrative: ${PRODUCT_NAME} @ ${COMPANY_NAME} (${PRODUCT_HOSTNAME})"
+echo "[*] Composite blocks: $(echo "$COMPOSITE_BLOCKS" | tr '|' ', ') (default: $DEFAULT_COMPOSITE)"
 
 # ── Start Ollama daemon (as datura) ──
 echo "[*] Starting Ollama..."
