@@ -208,3 +208,6 @@ src/proxy_rendered.py
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Local deployment runtime artifacts (custom narratives, branded UIs)
+runtime/
