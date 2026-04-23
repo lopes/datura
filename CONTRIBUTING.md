@@ -6,12 +6,15 @@ Thanks for your interest in contributing. This document covers how to get starte
 
 1. Fork the repository and clone your fork.
 2. Build and run the container to make sure everything works:
+
    ```bash
    docker build -f docker/Dockerfile -t datura .
    docker run -d --name datura -p 8080:8080 \
      -v ollama_data:/data/ollama -v /tmp/datura/logs:/data/logs datura
    ```
+
 3. Run the tests:
+
    ```bash
    pip install pytest
    pytest -v tests/
@@ -22,7 +25,8 @@ Thanks for your interest in contributing. This document covers how to get starte
 Check the [issues](https://github.com/lopes/datura/issues) for open tasks. If you want to work on something not listed, open an issue first to discuss the approach before writing code.
 
 Good first contributions:
-- New sensitive data block categories (see `src/proxy.py.tmpl`, `pick_data_block()`)
+
+- New composite block categories (add building blocks + composite block + keywords in `etc/datura.env`–see [Narrative Customization](docs/narrative.md#composite-blocks))
 - Additional few-shot examples in `etc/Modelfile.tmpl` for better model gating
 - New classification patterns in `etc/datura.env` (`PROBE_PATTERNS`, `RECON_PATTERNS`)
 - Addressing [known supply chain considerations](SECURITY.md#known-supply-chain-considerations)
@@ -36,22 +40,26 @@ These are non-negotiable and PRs that violate them will be rejected:
 - **No external Python dependencies.** The proxy uses stdlib only. No pip, no requirements.txt.
 - **Docker-first.** The project runs as a container. No local launch scripts.
 - **Single-file config.** All configuration lives in `etc/datura.env`. No new config files.
-- **Templates only.** Source files in `src/` and `etc/` are templates rendered by `envsubst` at startup. Use `${VAR}` placeholders for configurable values. Avoid JavaScript template literals (`${expr}`) in `ui.html.tmpl` because `envsubst` will eat them; use string concatenation instead.
+- **Templates only.** Source files in `src/` and `etc/` are templates rendered by `envsubst` at startup. Use `${VAR}` placeholders for configurable values. Avoid JavaScript template literals (`${expr}`) in `ui.html.tmpl` because `envsubst` will eat them; use string concatenation instead. Exception: composite blocks are loaded by the proxy via `os.environ` at runtime rather than through `envsubst`.
 
 ## Submitting a Pull Request
 
 1. Create a feature branch from `main`.
 2. Make your changes. Keep commits focused and atomic.
 3. Run the tests and make sure they pass:
+
    ```bash
    pytest -v tests/
    ```
+
 4. If you changed the proxy (`src/proxy.py.tmpl`), also run the linter:
+
    ```bash
    pip install ruff
    python3 tests/conftest.py
    ruff check src/proxy_rendered.py --select E,F,W --ignore E501,F541,F401,F821
    ```
+
 5. If you added new `${VAR}` placeholders, add them to:
    - `etc/datura.env` (with a default value and comment)
    - `tests/conftest.py` (`TEST_VARS` dict)

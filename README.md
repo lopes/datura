@@ -58,6 +58,8 @@ docker logs -f datura
 curl http://localhost:8080/
 ```
 
+> **Narrative setup:** The default scenario mimics "ITAssist" at "Acme Corp" with AWS/Kafka/DynamoDB honeytokens. To deploy with a custom narrative, edit `etc/datura.env`–see [Narrative Customization](docs/narrative.md) for the full workflow.
+
 ## Use Cases
 
 All examples below assume you have already built the image.
@@ -124,7 +126,7 @@ docker run -d --name datura \
 
 ## Configuration
 
-All configuration lives in a single file: `etc/datura.env`. It contains infrastructure settings, narrative identity, sensitive data, approval phrases, model parameters, proxy tuning, and classification keywords. Override individual values with `docker run -e`, or mount a complete custom file.
+All configuration lives in a single file: `etc/datura.env`. It contains infrastructure settings, narrative identity, building blocks (fake sensitive data), composite blocks (assembled payloads), approval phrases, model parameters, proxy tuning, and classification keywords. Infrastructure variables can be overridden with `docker run -e`. Narrative customization (identity, building blocks, composites) requires editing `datura.env` or mounting a custom copy.
 
 ### Key Variables
 
@@ -149,7 +151,7 @@ All configuration lives in a single file: `etc/datura.env`. It contains infrastr
 | `PHRASES` | *(pipe-delimited)* | Approval phrases triggering data injection |
 | `PHRASES_FILE` | *(empty)* | Optional path to external phrases file |
 
-See `etc/datura.env` for the full list including narrative, sensitive data, and classification keywords.
+See `etc/datura.env` for the full list including narrative identity, building blocks, composite blocks, and classification keywords.
 
 ### Full Re-skin
 

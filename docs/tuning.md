@@ -6,9 +6,9 @@ How to verify the honeypot works correctly after deployment and how to tune its 
 
 Think of Datura as a dark room full of secrets. Credentials are hidden in corners, server addresses behind furniture, API keys inside drawers. The room is designed so that:
 
-- **A casual visitor** walks in, looks around, and leaves. They see nothing because they aren't looking for anything. If secrets fall on them unprompted, that's a false positive and a design flaw.
-- **A curious outsider** pokes around, asks generic questions. They might bump into furniture, but they shouldn't find what's hidden behind it. Generic tech vocabulary ("database", "debug", "access") shouldn't open any drawers.
-- **A threat actor** arrives with intent. They know what they're looking for, use insider language, and build a pretext. They name specific systems, claim a role, describe a scenario. The room rewards their effort by revealing secrets proportional to their specificity.
+- **A casual visitor** walks in, fumbles in the dark, and leaves. They find nothing because they aren't looking for anything specific. If secrets fall on them unprompted, that's a false positive and a design flaw.
+- **A curious outsider** gropes around, asks generic questions. They might bump into furniture, but they can't find what's hidden behind it. Generic tech vocabulary ("database", "debug", "access") doesn't open any drawers.
+- **A threat actor** arrives with intent and a flashlight. They know what they're looking for, use insider language, and build a pretext. They name specific systems, claim a role, describe a scenario. The room rewards their effort by revealing secrets proportional to their specificity.
 
 The goal is not to prevent all leaks. It's to ensure that leaks only occur when the attacker demonstrates knowledge and intent that's worth detecting. A leak to a threat actor is a success (detection). A leak to a casual visitor is a failure (false positive).
 
@@ -17,7 +17,7 @@ The goal is not to prevent all leaks. It's to ensure that leaks only occur when 
 Data injection requires two independent conditions:
 
 1. **Model gate**: the model's response contains an approval phrase (e.g., "let me look up the staging config for that"). This is controlled by the system prompt and few-shot examples in `etc/Modelfile.tmpl`.
-2. **Proxy gate**: the user's prompt contains a work-context keyword from the `WORK_CONTEXT` list in `etc/datura.env`. This is a deterministic check in the proxy, independent of model behavior.
+2. **Proxy gate**: the user's prompt contains a work-context keyword. The effective work context is auto-derived at runtime from all composite block keywords (`DATA_<NAME>_KEYWORDS`), default composite keywords (`DEFAULT_COMPOSITE_KEYWORDS`), and `EXTRA_WORK_CONTEXT` in `etc/datura.env`. This is a deterministic check in the proxy, independent of model behavior.
 
 Both gates must open for injection to occur. If the model hallucinates an approval phrase on a nonsense prompt, the proxy blocks it. If the user says the right keywords but the model deflects, nothing is injected either.
 
@@ -87,15 +87,17 @@ curl -s http://localhost:8080/api/generate \
 
 ## Tuning the work context guard
 
-The `WORK_CONTEXT` variable in `etc/datura.env` controls which keywords in the user's prompt allow injection. The goal is to include only words that imply insider knowledge of the target organization.
+The effective work context is auto-derived at runtime from three sources: all composite block keywords (`DATA_<NAME>_KEYWORDS`), default composite keywords (`DEFAULT_COMPOSITE_KEYWORDS`), and `EXTRA_WORK_CONTEXT` in `etc/datura.env`. Adding a new composite block automatically adds its keywords to the injection gate.
+
+Use `EXTRA_WORK_CONTEXT` for insider-knowledge words that don't belong to any specific composite block. The goal is to include only words that imply insider knowledge of the target organization.
 
 **Good keywords** (insider knowledge): `kafka`, `dynamodb`, `eks`, `grafana`, `k8s`, `jenkins`, `acli`, `sre`, `consumer lag`, `staging config`
 
 **Bad keywords** (generic, any outsider might use): `debug`, `database`, `access`, `connect`, `cluster`, `deploy`, `config`, `service`, `api`, `endpoint`
 
 When tuning:
-1. Run the threat actor tests. If they don't trigger leaks, add the missing keywords.
-2. Run the curious outsider tests. If they trigger leaks, remove the overly generic keywords.
+1. Run the threat actor tests. If they don't trigger leaks, check if the missing keywords are in block `_KEYWORDS` or `EXTRA_WORK_CONTEXT`.
+2. Run the curious outsider tests. If they trigger leaks, remove overly generic keywords from `EXTRA_WORK_CONTEXT` or block `_KEYWORDS`.
 3. Check `docker logs` after each round. The `[LEAKED]` tag makes it easy to spot.
 
 ## Tuning the model
@@ -119,9 +121,9 @@ After testing, review `$LOG_DIR/interactions.jsonl` (see [Logging & Monitoring](
 | Level | What it means for tuning |
 |---|---|
 | `leaked` on threat actor prompt | Success. The honeypot is working. |
-| `leaked` on casual/outsider prompt | False positive. Tighten `WORK_CONTEXT` or add negative few-shots. |
+| `leaked` on casual/outsider prompt | False positive. Tighten `EXTRA_WORK_CONTEXT` or composite block keywords, or add negative few-shots. |
 | `denied` on threat actor prompt | The model deflected when it should have approved. Add bypass few-shots. |
-| `ordinary` on threat actor prompt | The model didn't trigger any classification. Check if the prompt lacks keywords from both `SENSITIVE_KEYWORDS` and `WORK_CONTEXT`. |
+| `ordinary` on threat actor prompt | The model didn't trigger any classification. Check if the prompt lacks keywords from `SENSITIVE_KEYWORDS`, composite block keywords, or `EXTRA_WORK_CONTEXT`. |
 | `probe` on any prompt | Jailbreak attempt detected. The proxy logged it regardless of model behavior. |
 
 ## Relationship to model strategy

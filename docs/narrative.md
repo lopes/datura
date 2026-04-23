@@ -12,27 +12,28 @@ A well-crafted narrative increases dwell time, triggers more varied social engin
 
 Time invested in the narrative directly translates to signal quality in the logs.
 
+## Narrative Architecture
+
+Configuration in `etc/datura.env` is organized into two tiers:
+
+**Building blocks** are individual pieces of fake sensitive data: credentials, endpoints, API keys, tokens, configuration values. They are the raw deception material. Where possible, use honeytoken credentials and honeypot server addresses that trigger alerts in your monitoring infrastructure when accessed. This adds detection on top of deception. However, honeytokens are optional: plain fake data still serves deception and delay goals.
+
+**Composite blocks** are assembled payloads that reference building blocks. These are the formatted responses the proxy injects when the model triggers an approval phrase. Only composite blocks are injected–building blocks that are not referenced in any composite are inert.
+
+Each composite block has:
+
+- `DATA_<NAME>`: the formatted content (markdown), written as the exact text injected into the response
+- `DATA_<NAME>_KEYWORDS`: pipe-delimited keywords that route the conversation to this block
+
+The proxy matches keywords from the model response and user prompt against composite block keywords to decide which block to inject. Blocks are checked in the order listed in `COMPOSITE_BLOCKS`. If no specific block matches but the user prompt contains generic onboarding terms, the block named by `DEFAULT_COMPOSITE` is used as a fallback.
+
+**Work context** is a set of keywords the proxy uses to gate data injection. Even if the model uses an approval phrase, the proxy only injects data when the user's prompt contains a work-context keyword. This prevents leaks on off-topic or nonsense prompts. Work context is auto-derived at runtime from all composite block keywords, default composite keywords, and `EXTRA_WORK_CONTEXT`. Adding a new composite block automatically updates the injection gate–no manual keyword sync needed. Use `EXTRA_WORK_CONTEXT` for insider-knowledge words that don't belong to any specific block (e.g., "sre", "consumer lag").
+
+**Alignment matters.** Composite blocks, UI quickstart chips, the warning banner, and the Modelfile system prompt should tell the same story. If the composite blocks reference Kafka and AWS but the UI chips mention "MongoDB credentials", the narrative breaks.
+
 ## Customizing the Narrative
 
-All configuration (narrative, infrastructure, model parameters, approval phrases, and classification keywords) lives in a single file: `etc/datura.env`. At container startup, templates are rendered with these values via `envsubst`.
-
-### Quick Tweak (Environment Variables)
-
-Override individual values via `docker run -e`:
-
-```bash
-docker run -d --name datura \
-  -e COMPANY_NAME="Globex Corp" \
-  -e PRODUCT_NAME="GloBot" \
-  -e PRODUCT_HOSTNAME="globot.internal.globex.dev" \
-  -p 8080:8080 \
-  -v ollama_data:/data/ollama \
-  datura
-```
-
-### Full Re-skin (Mounted File)
-
-Mount a complete custom config file:
+All configuration lives in a single file: `etc/datura.env`. To customize, either edit it directly and rebuild, or mount a custom copy:
 
 ```bash
 docker run -d --name datura \
@@ -42,148 +43,101 @@ docker run -d --name datura \
   datura
 ```
 
-Copy `etc/datura.env` as a starting point and edit it for your scenario.
+Copy `etc/datura.env` as a starting point and edit it for your scenario. The workflow:
+
+1. **Define the identity.** Set `COMPANY_NAME`, `PRODUCT_NAME`, team names, people, and tech stack.
+2. **Create building blocks.** Add individual credentials, endpoints, and tokens for your target environment. Use honeytokens where possible.
+3. **Assemble composite blocks.** Write the formatted payloads that reference building blocks. Each composite needs content (`DATA_<NAME>`) and keywords (`DATA_<NAME>_KEYWORDS`).
+4. **Register composites.** List active block names in `COMPOSITE_BLOCKS` and set `DEFAULT_COMPOSITE`.
+5. **Add extra work context.** Put insider-knowledge keywords in `EXTRA_WORK_CONTEXT` for words not covered by composite block keywords.
+6. **Align the UI.** Build a custom UI template or update quickstart chips in the default `src/ui.html.tmpl` to match your composite blocks.
+7. **Test the flow.** See [Tuning & Testing](tuning.md).
+
+Changes to `datura.env` require a container restart to take effect. For details on how templates are rendered and configuration flows through the system, see the [Configuration Pipeline](architecture.md#configuration-pipeline) in the architecture documentation.
 
 ## Narrative Variables
 
-All variables are defined in `etc/datura.env`. They are organized by function below.
+All variables are defined in `etc/datura.env`. The file is self-documented with comments explaining each variable. This section covers the variables that shape the narrative across the system prompt, the web UI, and the proxy.
 
-### Identity
+### Identity, People, and Tech Stack
 
-| Variable | Default | Purpose |
+These variables define who the assistant is, who maintains it, and what the company's technology looks like. They appear in the Modelfile system prompt (which controls how the model talks) and in the web UI (which controls what the attacker sees). Change these first when re-skinning the honeypot.
+
+| Variable | Used in | Purpose |
 |---|---|---|
-| `PRODUCT_NAME` | `ITAssist` | Assistant name shown in UI, model identity, and system prompt |
-| `PRODUCT_VERSION` | `0.3.1` | Version badge in UI header and footer |
-| `COMPANY_NAME` | `Acme Corp` | Company name used throughout system prompt and UI |
-| `COMPANY_DOMAIN` | `acmecorp` | Short domain prefix for internal references |
-| `INTERNAL_DOMAIN` | `acmecorp.internal` | Internal DNS domain used in sensitive data hostnames |
-| `PRODUCT_HOSTNAME` | `itassist-beta-9ff40b1bd.internal.acmecorp.dev` | Hostname shown in UI header and footer |
-| `TEAM_NAME` | `IT Platform` | Team name shown in UI and system prompt |
-| `TEAM_CHANNEL` | `it-platform` | Slack channel referenced in UI warning banner and system prompt |
-| `TEAM_PREFIX` | `ITPLAT` | Jira ticket prefix in UI warning banner (e.g., `ITPLAT-1847`) |
-| `LOGO_TEXT` | `IT` | Two-letter logo badge in UI header |
-| `SPOOFED_MODEL` | `gpt-4-turbo-internal` | Model name shown in UI and API responses |
-| `SPOOFED_MODEL_LABEL` | `GPT-4-Turbo` | Model name claimed in the system prompt (e.g., "You run on GPT-4-Turbo") |
-| `FORBIDDEN_MODEL_NAMES` | `Ollama, Qwen, Alibaba, ...` | Names the model must never mention (real provider, framework, base model) |
+| `PRODUCT_NAME` | UI + Modelfile | Assistant name (header, welcome message, system prompt identity) |
+| `PRODUCT_VERSION` | UI + Modelfile | Version badge and system prompt version claim |
+| `COMPANY_NAME` | UI + Modelfile | Company name used throughout the narrative |
+| `TEAM_NAME` | UI + Modelfile | Team name in header subtitle, welcome message, system prompt |
+| `TEAM_CHANNEL` | UI + Modelfile | Slack channel in the warning banner and system prompt |
+| `TEAM_PREFIX` | UI | Jira ticket prefix in the warning banner (e.g., `ITPLAT-1847`) |
+| `LOGO_TEXT` | UI | Two-letter logo badge in the header |
+| `PRODUCT_HOSTNAME` | UI | Hostname in the header and footer |
+| `SPOOFED_MODEL` | UI + Proxy | Model name shown in the UI and API responses |
+| `SPOOFED_MODEL_LABEL` | Modelfile | Model name claimed in the system prompt |
+| `FORBIDDEN_MODEL_NAMES` | Modelfile | Names the model must never mention (real provider, framework) |
+| `LEAD_NAME`, `LEAD_HANDLE`, `LEAD_ROLE` | Modelfile | Team lead the model references when deflecting |
+| `SECURITY_NAME`, `SECURITY_HANDLE` | Modelfile | Security contact in the system prompt |
+| `TECH_STACK` | Modelfile | Full tech stack description for system prompt knowledge |
+| `CLI_TOOL` | Modelfile | Internal CLI tool name referenced in system prompt |
 
-### People
+### Building Blocks
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `LEAD_NAME` | `Sarah Chen` | Team lead name used in system prompt deflections |
-| `LEAD_HANDLE` | `sarah.chen` | Slack handle the model directs users to contact |
-| `LEAD_ROLE` | `IT Platform lead` | Role description in system prompt |
-| `SECURITY_NAME` | `James Park` | Security contact in system prompt |
-| `SECURITY_HANDLE` | `james.park` | Security contact Slack handle |
+Building blocks are individual pieces of fake sensitive data: credentials, endpoints, API keys, tokens, and configuration values. They are not injected directly–they are referenced by composite blocks. Each variable is documented with inline comments in `etc/datura.env`.
 
-### Tech Stack
+Three goals guide what you put here:
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `TECH_STACK` | *(long description)* | Full tech stack description for system prompt knowledge |
-| `ARCH_NAME` | `Gateway Architecture` | Architecture pattern name referenced in conversations |
-| `ARCH_LAYERS` | *(layer descriptions)* | Architecture layer breakdown for system prompt |
-
-### Sensitive Data
-
-The proxy injects fake sensitive data when the model's response contains an approval phrase. The data is organized into five categories, each targeting a different type of information an attacker might seek during discovery (MITRE TA0007). The defaults ship with realistic examples; replace them with values that match your target environment.
-
-Where possible, use **honeytokens** (credentials, API keys) and **honeypot addresses** (server IPs, dashboard URLs) that trigger alerts in your monitoring infrastructure when accessed. This adds detection on top of deception. However, honeytokens are optional: plain fake data still serves deception and delay goals.
-
-Three goals guide what you put in these blocks:
 - **Deception**: make the data believable so the attacker acts on it.
 - **Detection**: use honeytokens and honeypot addresses that alert when used.
 - **Delay**: waste attacker time on fake infrastructure.
 
-**Messaging** (default: Kafka):
+The defaults ship with five categories of building blocks (messaging, cloud, database, services, system) using Kafka, AWS, DynamoDB, K8s/Grafana/Jenkins, and system prompt leak data. Replace them with values that match your target environment. Add new categories as needed–any variable defined in `datura.env` can be referenced in a composite block.
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `KAFKA_BROKER_1` | `kafka-stg-01.acmecorp.internal:9092` | First Kafka broker address |
-| `KAFKA_BROKER_2` | `kafka-stg-02.acmecorp.internal:9092` | Second Kafka broker address |
-| `KAFKA_BROKER_3` | `kafka-stg-03.acmecorp.internal:9092` | Third Kafka broker address |
-| `KAFKA_USER` | `itassist-consumer` | SASL PLAIN username |
-| `KAFKA_PASS` | `K4fk4Acm3Stg!` | SASL PLAIN password |
-| `KAFKA_TOPICS` | *(4 topic names)* | Comma-separated Kafka topic list |
+### Composite Blocks
 
-**Cloud** (default: AWS):
+Composite blocks are the assembled payloads injected into responses. Each block is a multi-line double-quoted string in `datura.env` containing the exact markdown appended to the model's response. Users have full control over formatting, tone, and structure–this matters for believability, as deterministic or templated-looking output could tip off a sharp adversary.
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `AWS_ACCOUNT_ID` | `447923185612` | AWS account ID |
-| `AWS_REGION` | `us-east-1` | AWS region |
-| `AWS_ACCESS_KEY` | `AKIAIOSFODNN7ACMEC01` | IAM access key ID |
-| `AWS_SECRET_KEY` | `wJalrXUtnFEMI/K7MDENG/bPxRfiCYACMECSTG` | IAM secret access key |
-| `EKS_CLUSTER` | `acme-eks-staging-use1` | EKS cluster name |
-| `CLI_TOOL` | `acli` | Internal CLI tool name |
-| `CLI_PROFILE` | `us-staging` | CLI profile name |
+**Registry variables:**
 
-**Database** (default: DynamoDB):
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `DYNAMODB_ENDPOINT` | `dynamodb-stg.acmecorp.internal:8000` | DynamoDB endpoint |
-| `DYNAMODB_PREFIX` | `acme-stg-` | Table name prefix |
-| `DYNAMODB_TABLES` | *(4 table names)* | Comma-separated table list |
-
-**Services** (default: K8s, Grafana, Jenkins):
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `K8S_DASHBOARD` | `https://k8s-dashboard.acmecorp.internal` | Kubernetes dashboard URL |
-| `K8S_TOKEN` | *(JWT token)* | Dashboard access token |
-| `GRAFANA_URL` | `https://grafana.acmecorp.internal` | Grafana URL |
-| `GRAFANA_USER` | `grafana-readonly` | Grafana username |
-| `GRAFANA_PASS` | `Gr4f4n4Acm32024` | Grafana password |
-| `STAGING_API` | `https://api-stg.acmecorp.internal/v2` | Staging API base URL |
-| `STAGING_TOKEN` | *(bearer token)* | Staging API token |
-| `JENKINS_URL` | `https://ci-legacy.acmecorp.internal` | Jenkins URL |
-| `JENKINS_USER` | `admin` | Jenkins username |
-| `JENKINS_PASS` | `J3nk1ns#2024` | Jenkins password |
-| `GITHUB_ORG` | `acmecorp` | GitHub organization name |
-| `INFRA_TOOL` | `CloudStack` | Infrastructure-as-code tool name |
-| `INFRA_REPO` | *(GitHub URL)* | Infrastructure repo URL |
-
-**System** (system prompt leak):
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `SEARCH_API_KEY` | `search-api-itassist-beta-4f8a2b1c` | Fake search API key leaked on system prompt extraction |
-| `CONFLUENCE_API_KEY` | `confluence-api-itassist-ro-7d2e4f` | Fake Confluence API key |
-| `CONFIG_REPO` | `github.com/acmecorp/it-platform/itassist-config` | Fake config repo URL |
-
-## Web UI Customization
-
-The Web UI (`src/ui.html.tmpl`) is styled as an internal corporate AI tool with a dark purple theme. The following narrative variables control what the user sees:
-
-| Variable | UI Element |
+| Variable | Purpose |
 |---|---|
-| `PRODUCT_NAME` | Header title, welcome message, page title, connection error text |
-| `LOGO_TEXT` | Logo badge in header (2-letter abbreviation) |
-| `PRODUCT_VERSION` | Version badge in header ("Beta vX.X.X"), welcome message, footer |
-| `TEAM_NAME` | Header subtitle ("by *Team Name*"), welcome message, footer |
-| `PRODUCT_HOSTNAME` | Environment info in header, footer |
-| `SPOOFED_MODEL` | Model name in header environment info ("model: ..."), footer |
-| `MODEL_NAME` | JavaScript `const MODEL`, used in API requests, not directly visible |
-| `TEAM_PREFIX` | Warning banner Jira ticket reference (e.g., "ITPLAT-1847") |
-| `TEAM_CHANNEL` | Warning banner Slack channel reference (e.g., "#it-platform") |
+| `COMPOSITE_BLOCKS` | Pipe-delimited list of active block names (e.g., `MESSAGING\|CLOUD\|DATABASE`) |
+| `DEFAULT_COMPOSITE` | Block name used as fallback for generic onboarding queries |
+| `DEFAULT_COMPOSITE_KEYWORDS` | Pipe-delimited keywords that trigger the default block |
+| `EXTRA_WORK_CONTEXT` | Additional insider-knowledge keywords for the work-context gate, beyond what block keywords cover |
 
-The warning banner references a fake Jira ticket (`${TEAM_PREFIX}-1847`) and a Slack channel (`#${TEAM_CHANNEL}`). These details reinforce the narrative of a real internal tool with known issues and serve as the primary lure for sensitive data extraction attempts.
+**Per-block variables:**
 
-## How Templates Work
+| Variable | Purpose |
+|---|---|
+| `DATA_<NAME>` | Formatted content for block `<NAME>` (markdown, multi-line) |
+| `DATA_<NAME>_KEYWORDS` | Pipe-delimited keywords that route conversations to block `<NAME>` |
 
-At container startup, `docker/entrypoint.sh` runs the following pipeline:
+The defaults ship with five composites: `MESSAGING` (Kafka), `CLOUD` (AWS), `DATABASE` (DynamoDB), `SERVICES` (K8s, Grafana, Jenkins), and `SYSTEM` (system prompt leak with API keys).
 
-1. Sources `etc/datura.env` to load all variables into the shell environment
-2. Environment variables passed via `docker run -e` take precedence (save/restore ensures they survive sourcing)
-3. Generates `/app/phrases.txt` from the `PHRASES` variable (or copies from `PHRASES_FILE` if set)
-4. Renders three templates via `envsubst`:
-   - `src/proxy.py.tmpl` → `proxy.py`
-   - `src/${UI_FILE%.html}.html.tmpl` → `${UI_FILE}`
-   - `etc/Modelfile.tmpl` → `Modelfile`
-5. The rendered files are plain text with no runtime template engine or dependencies
+**Shell notes for composite blocks:**
 
-Changes to `datura.env` or environment variables require a container restart to take effect.
+- Use `\`` for markdown backticks (double-quoted strings treat bare backticks as command substitution)
+- Use `\$` for literal dollar signs
+- Building blocks must be defined before composites in the file (shell expands `${VAR}` in assignment order)
+- Building block references like `${KAFKA_BROKER_1}` are expanded by the shell at source time–the proxy sees only resolved values
+
+## Web UI
+
+Datura ships with a default web UI (`src/ui.html.tmpl`) styled as an internal corporate AI tool. It is a reference implementation designed for testing and quick deployment. For production use, you are encouraged to create your own UI template tailored to your target narrative. Set `UI_FILE` in `datura.env` and mount the matching template:
+
+```bash
+docker run -d --name datura \
+  -v /path/to/my-datura.env:/app/datura.env:ro \
+  -v /path/to/custom.html.tmpl:/app/custom.html.tmpl:ro \
+  -p 8080:8080 \
+  -v ollama_data:/data/ollama \
+  datura
+```
+
+The default UI uses identity variables from `datura.env` (see Identity table above) for the header, footer, warning banner, and welcome message. The quickstart chips are static labels that hint at what the assistant can help with but do not auto-fill the input–update them to match your composite blocks when building a custom UI.
+
+The warning banner references a fake Jira ticket (`${TEAM_PREFIX}-1847`) and a Slack channel (`#${TEAM_CHANNEL}`). This is the single most important lure element: it tells the attacker the assistant is known to leak sensitive data.
 
 ## Tips for a Believable Narrative
 
@@ -198,5 +152,7 @@ Changes to `datura.env` or environment variables require a container restart to 
 - **Customize the warning banner.** The default banner references a Jira ticket about "credential redaction not yet implemented." This is the single most important lure element in the Web UI: it tells the attacker the assistant is known to leak sensitive data. Adjust the ticket prefix and Slack channel to match your organization's tooling.
 
 - **Think of Datura as a portal.** The fake data you inject can lead the attacker to other decoys: honeytoken credentials that alert when used, honeypot servers that log connections, canary URLs that trigger on access. Datura is not just a standalone honeypot but an entry point into your deception infrastructure.
+
+- **Never type on behalf of the user.** The UI should hint at what the assistant can help with (topic chips, welcome message) but never auto-fill or auto-send prompts. Every message in the logs should be something the attacker typed themselves. This removes plausible deniability ("I accidentally clicked a button") and strengthens the evidentiary value of leaked interactions.
 
 - **Test the full flow.** After customizing, interact with the honeypot as an attacker would. Verify that the approval phrases still trigger correctly with your base model, that injected data looks plausible, and that the UI tells a consistent story.

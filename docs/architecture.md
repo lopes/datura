@@ -4,7 +4,7 @@ Internal architecture of the Datura LLM honeypot. For the system flow diagram, s
 
 ## Project Structure
 
-```
+```text
 datura/
 ├── docker/
 │   ├── Dockerfile          # debian:stable-slim + official Ollama install
@@ -23,7 +23,7 @@ datura/
 
 ## Components
 
-Three templates, two runtime processes. All templates use `${VAR}` placeholders rendered by `envsubst` at container startup from `etc/datura.env`.
+Three templates, two runtime processes. Templates use `${VAR}` placeholders rendered by `envsubst` at container startup from `etc/datura.env`. Composite blocks (the assembled payloads injected into responses) are loaded by the proxy via `os.environ` at runtime rather than through `envsubst`.
 
 ### Modelfile (`etc/Modelfile.tmpl`)
 
@@ -54,9 +54,10 @@ A stdlib-only HTTP proxy (`http.server.BaseHTTPRequestHandler`) that sits betwee
 
 **Buffer-inspect-inject pattern.** Regardless of the interface, the proxy always forces `stream: false` toward Ollama, buffers the complete model response, inspects it for approval phrases, and optionally injects fake sensitive data, all before sending anything back to the client. This ensures data injection is deterministic, fully logged, and never depends on model behavior.
 
-**Data injection.** Five sensitive data blocks are defined server-side, organized by category (messaging, cloud, database, services, system). The `pick_data_block()` function selects which block to inject based on keyword matching against the combined model response and user prompt. For the full list of categories, default values, and customization guidance, see [Narrative Customization](narrative.md#sensitive-data).
+**Data injection.** Composite blocks are defined in `etc/datura.env` and loaded by the proxy via `os.environ` at startup. Each block has content and associated keywords. The `pick_data_block()` function selects which block to inject based on keyword matching against the combined model response and user prompt. Blocks are checked in `COMPOSITE_BLOCKS` order; if no specific block matches, a configurable default block handles generic queries. For the full list of categories, default values, and customization guidance, see [Narrative Customization](narrative.md#composite-blocks).
 
 **Streaming formats.** Two streaming methods serve different clients:
+
 - `_stream_response()`: NDJSON (`{"response": "word", "done": false}\n`), used for the web UI and Ollama-native clients.
 - `_stream_response_sse()`: OpenAI SSE (`data: {"choices":[{"delta":{"content":"word"}}]}\n\n` terminated by `data: [DONE]\n\n`), used for IDE sidebar chat tools. Both split the response into words and send them with a configurable delay (`STREAM_DELAY`, default 40ms) to simulate natural typing.
 
@@ -68,12 +69,13 @@ A stdlib-only HTTP proxy (`http.server.BaseHTTPRequestHandler`) that sits betwee
 
 A single-file chat interface (HTML + CSS + JS, no build step) designed to look like a hastily deployed internal corporate AI tool. Everything renders from template variables: the company name, product branding, team references, and model identity are all configurable.
 
-**Visual design.** The UI uses CSS custom properties for a dark-themed color palette. Typography is handled by two Google Fonts loaded via `<link>`: DM Sans for body text and JetBrains Mono for code and technical elements. The layout is a flexbox column (header, warning banner, quickstart chips, scrollable chat area, input bar, and footer) filling the full viewport height.
+**Visual design.** The default UI uses a light theme with a Messenger-inspired layout: white surfaces, green accent (Datura brand), gray assistant bubbles, and green user bubbles. Typography uses the system font stack with a monospace fallback for code (no external font loading). The layout is a flexbox column (header, quickstart chips, scrollable chat area, input bar, and footer) filling the full viewport height.
 
 **Lure elements.** The UI is engineered to bait interaction:
-- A warning banner states that "credential and token redaction not yet implemented" with a fake Jira ticket reference, suggesting the tool has a known vulnerability.
+
+- A system message in the chat states that "credential and token redaction not yet implemented" with a fake Jira ticket reference, suggesting the tool has a known vulnerability.
 - Badges mark it as "Beta" and "Internal Only."
-- Quickstart chips offer pre-populated prompts like "Staging credentials," "Kafka connection details," and "AWS access keys," mapping to the `askSuggestion()` function which populates the input field with a full-sentence prompt from a hardcoded dictionary.
+- Quickstart chips display topic hints like "Staging credentials," "Kafka connection details," and "AWS access keys." They are static labels that suggest what the assistant can help with but do not auto-fill the input -- the attacker must type their own request, ensuring every leaked prompt reflects intent.
 
 **Session tracking.** Each browser tab generates a session ID using `crypto.randomUUID()` (Web Crypto API), with a fallback for older browsers that concatenates `Date.now().toString(36)` with `Math.random().toString(36).slice(2)`. A turn counter increments on each message. Both values are sent as custom HTTP headers (`X-Session-Id`, `X-Turn`) on every API request, enabling the proxy to correlate multi-turn conversations in the logs.
 
@@ -83,8 +85,24 @@ A single-file chat interface (HTML + CSS + JS, no build step) designed to look l
 
 **Input handling.** The input field listens for Enter key via `keydown` event. The send button is disabled during streaming to prevent concurrent requests and re-enabled when the response completes or errors. A typing indicator (three animated dots using CSS `@keyframes`) is shown while waiting for the first chunk and removed when streaming begins.
 
-## Key Coupling Point
+## Configuration Pipeline
+
+Configuration flows through two paths depending on the type of variable:
+
+1. **`entrypoint.sh`** sources `etc/datura.env` with `set -a` (export all). Building block references inside composite block values (`${KAFKA_BROKER_1}`, etc.) are expanded by the shell at this step.
+2. **`envsubst`** renders templates (`proxy.py.tmpl`, `ui.html.tmpl`, `Modelfile.tmpl`), substituting scalar variables like `PRODUCT_NAME`, `MODEL_NAME`, `COMPOSITE_BLOCKS`, etc.
+3. **The proxy starts** and reads composite block content (`DATA_MESSAGING`, `DATA_CLOUD`, etc.) from `os.environ` at import time. This is the only path for composite blocks–they are not rendered via `envsubst`.
+4. **Work context** is auto-derived at runtime from all composite block keywords + default composite keywords + `EXTRA_WORK_CONTEXT`. No manual keyword list to maintain.
+5. **At request time**, the proxy matches keywords from the model response and user prompt against composite block keywords to select which block to inject.
+
+**Scalar vars** (identity, infrastructure, tuning) flow through `envsubst` into templates. **Composite blocks** flow through `os.environ` into the proxy at runtime. Building blocks are expanded by the shell at source time–the proxy never sees `${VAR}` references in composite content.
+
+Infrastructure variables can be overridden with `docker run -e`. Narrative variables (identity, building blocks, composites) require editing `datura.env` or mounting a custom copy.
+
+## Key Coupling Points
 
 The `PHRASES` variable in `etc/datura.env` must stay aligned with the system prompt language in `etc/Modelfile.tmpl`. The Modelfile teaches the model to say specific phrases ("Let me look up the staging config for that"); the proxy watches for those exact phrases to trigger data injection. If you change the base model or edit the system prompt, verify that the model still produces responses containing phrases from the `PHRASES` list. A mismatch means the model talks but the proxy never injects sensitive data.
 
-All other cross-component values (`MODEL_NAME`, `SPOOFED_MODEL`, etc.) are sourced from `etc/datura.env` and rendered into every template by `envsubst` at startup, so they stay consistent automatically.
+Composite blocks, UI quickstart chips, the warning banner, and the Modelfile system prompt should tell the same story. If the composites reference Kafka and AWS but the UI chips mention different technologies, the narrative breaks.
+
+Scalar cross-component values (`MODEL_NAME`, `SPOOFED_MODEL`, etc.) are sourced from `etc/datura.env` and rendered into every template by `envsubst` at startup, so they stay consistent automatically.
