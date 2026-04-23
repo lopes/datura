@@ -1,8 +1,10 @@
 services:
   datura:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile
+    image: forkd/datura
+    # To build from source instead, comment out 'image' and uncomment 'build':
+    # build:
+    #   context: .
+    #   dockerfile: docker/Dockerfile
     container_name: datura
     ports:
       - "8080:8080"

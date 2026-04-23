@@ -40,22 +40,32 @@ The model itself has **no sensitive data** in its context. It only does conversa
 
 ## Quick Start
 
-```bash
-# Build
-docker build -f docker/Dockerfile -t datura .
+Pre-built images are available on [Docker Hub](https://hub.docker.com/r/forkd/datura):
 
+```bash
 # Run (first start pulls the model — ~2-5 min, cached on subsequent runs)
 docker run -d --name datura \
   -p 8080:8080 \
   -v ollama_data:/data/ollama \
   -v /tmp/datura/logs:/data/logs \
-  datura
+  forkd/datura
 
 # Watch startup progress
 docker logs -f datura
 
 # Verify
 curl http://localhost:8080/
+```
+
+To build from source instead:
+
+```bash
+docker build -f docker/Dockerfile -t datura .
+docker run -d --name datura \
+  -p 8080:8080 \
+  -v ollama_data:/data/ollama \
+  -v /tmp/datura/logs:/data/logs \
+  datura
 ```
 
 > **Narrative setup:** The default scenario mimics "ITAssist" at "Acme Corp" with AWS/Kafka/DynamoDB honeytokens. To deploy with a custom narrative, edit `etc/datura.env`–see [Narrative Customization](docs/narrative.md) for the full workflow.
